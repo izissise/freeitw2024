@@ -1,3 +1,5 @@
+//! Free interview 2024
+
 // Macro options
 #![recursion_limit = "512"]
 // Lints
@@ -53,12 +55,19 @@
 )]
 #![allow(clippy::match_bool)]
 
-pub mod error;
-pub mod lambda_app;
-pub mod sandbox;
-pub mod pagination;
+/// Error module
+mod error;
 
-pub use error::ApiError;
+/// Lambda app module
+mod lambda_app;
+
+/// http Pagination
+mod pagination;
+
+/// Sandboxing
+mod sandbox;
+
+pub use error::HttpErr;
+pub use lambda_app::LambdaAppKind as LambdaApp;
 pub use pagination::Pagination;
-pub use lambda_app::LambdaApp;
-pub use sandbox::Sandbox;
+pub use sandbox::SandboxKind as Sandbox;

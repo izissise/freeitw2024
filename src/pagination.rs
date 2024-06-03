@@ -11,10 +11,6 @@ pub struct Pagination {
 
 impl Default for Pagination {
     fn default() -> Self {
-        Self {
-            offset: 0,
-            limit: usize::MAX,
-        }
+        Self { offset: 0, limit: usize::MAX }
     }
 }
-

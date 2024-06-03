@@ -1,41 +1,40 @@
 use anyhow::Result;
 use axum::{
-    extract::{Path, Query, State},
-    http::StatusCode,
-    response::IntoResponse,
-    routing::{get},
+    body::Body,
+    extract::{Query, State},
+    response::{IntoResponse, Response, Result as HttpResult},
+    routing::get,
     Json, Router,
 };
+use serde::Deserialize;
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
 };
-use tokio;
-use tracing_subscriber;
 use tower_http::trace::TraceLayer;
-use serde::Deserialize;
 
-use interviewfree::{ApiError, Pagination, LambdaApp, Sandbox};
+use interviewfree::{HttpErr, LambdaApp, Pagination, Sandbox};
 
 struct ApiState {
-    apps: HashMap<String, LambdaApp>,
+    lambdas: HashMap<String, LambdaApp>,
     sandboxs: HashMap<String, Sandbox>,
 }
 
 type ApiStateWrapper = Arc<RwLock<ApiState>>;
+type HttpResponse = HttpResult<Response<Body>, HttpErr>;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     // Setup tracing
     tracing_subscriber::fmt::init();
 
-    let state = Arc::new(RwLock::new(ApiState { apps: HashMap::new(), sandboxs: HashMap::new() }));
+    let state =
+        Arc::new(RwLock::new(ApiState { lambdas: HashMap::new(), sandboxs: HashMap::new() }));
 
     // Compose the routes
     let app = Router::new()
-        .route("/apps",
-               get(apps_index)
-        )
+        .route("/sandboxs", get(sandboxs_index))
+        .route("/lambdas", get(lambdas_index).put(lambdas_insert))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
@@ -43,21 +42,51 @@ async fn main() -> Result<()> {
     Ok(axum::serve(listener, app).await?)
 }
 
-async fn apps_index(
+async fn sandboxs_index(
     pagination: Option<Query<Pagination>>,
     State(s): State<ApiStateWrapper>,
-) -> impl IntoResponse {
-    let state = s.read().unwrap(); // TODO handle error
-    let apps = &state.apps;
+) -> HttpResponse {
+    let state = s.read().map_err(|e| anyhow::anyhow! { e.to_string() })?; // With map errors this way because PoisonError are not `Send`
+    let sandboxs = &state.sandboxs;
 
     let Query(pagination) = pagination.unwrap_or_default();
 
-    let apps = apps
-        .values()
-        .skip(pagination.offset)
-        .take(pagination.limit)
-        .collect::<Vec<_>>();
+    let sandboxs =
+        sandboxs.values().skip(pagination.offset).take(pagination.limit).collect::<Vec<_>>();
 
-    Json(apps).into_response()
+    Ok(Json(sandboxs).into_response())
 }
 
+async fn lambdas_index(
+    pagination: Option<Query<Pagination>>,
+    State(s): State<ApiStateWrapper>,
+) -> HttpResponse {
+    let state = s.read().map_err(|e| anyhow::anyhow! { e.to_string() })?; // With map errors this way because PoisonError are not `Send`
+    let lambdas = &state.lambdas;
+
+    let Query(pagination) = pagination.unwrap_or_default();
+
+    let lambdas =
+        lambdas.values().skip(pagination.offset).take(pagination.limit).collect::<Vec<_>>();
+
+    Ok(Json(lambdas).into_response())
+}
+
+#[derive(Deserialize)]
+struct LambdasInsert {
+    name: String,
+    #[serde(flatten)]
+    app: LambdaApp,
+}
+
+async fn lambdas_insert(
+    State(s): State<ApiStateWrapper>,
+    lambdasinsert: Json<LambdasInsert>,
+) -> HttpResponse {
+    let lambdasinsert = lambdasinsert.0;
+
+    let mut state = s.write().map_err(|e| anyhow::anyhow! { e.to_string() })?; // With map errors this way because PoisonError are not `Send`
+    let lambdas = &mut state.lambdas;
+    let _ = lambdas.insert(lambdasinsert.name, lambdasinsert.app);
+    Ok("".into_response())
+}

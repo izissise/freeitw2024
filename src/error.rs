@@ -4,10 +4,10 @@ use axum::{
 };
 
 /// Make our own error that wraps `anyhow::Error`.
-pub struct ApiError(anyhow::Error);
+pub struct HttpErr(anyhow::Error);
 
-// Tell axum how to convert `ApiError` into a response.
-impl IntoResponse for ApiError {
+// Tell axum how to convert `HttpErr` into a response.
+impl IntoResponse for HttpErr {
     fn into_response(self) -> Response {
         (StatusCode::INTERNAL_SERVER_ERROR, format!("Something went wrong: {}", self.0))
             .into_response()
@@ -15,8 +15,8 @@ impl IntoResponse for ApiError {
 }
 
 // This enables using `?` on functions that return `Result<_, anyhow::Error>` to turn them into
-// `Result<_, ApiError>`. That way you don't need to do that manually.
-impl<E> From<E> for ApiError
+// `Result<_, HttpErr>`. That way you don't need to do that manually.
+impl<E> From<E> for HttpErr
 where
     E: Into<anyhow::Error>,
 {

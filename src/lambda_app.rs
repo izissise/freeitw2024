@@ -1,26 +1,31 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
 
 use enum_dispatch::enum_dispatch;
 
-use crate::sandbox::Sandbox;
+use crate::Sandbox;
 
+/// Kind of lambda app for now Python or Bash
+#[allow(clippy::module_name_repetitions)]
 #[derive(Serialize, Deserialize)]
 #[enum_dispatch]
-pub enum LambdaApp {
+pub enum LambdaAppKind {
+    /// Python wrapper
     Py(PyApp),
+    /// Bash wrapper
     Bash(BashApp),
 }
 
+/// Lambda App trait implement exec to execute the lambda kind
 #[allow(async_fn_in_trait)]
-#[enum_dispatch(LambdaApp)]
-pub trait LambdaAppTrait {
+#[enum_dispatch(LambdaAppKind)]
+pub trait Trait {
     async fn exec(&self, sandbox: Sandbox, params: HashMap<String, String>) -> Vec<u8>;
 }
 
-
+/// A python lambda
 #[derive(Serialize, Deserialize)]
-struct PyApp {
+pub struct PyApp {
     pycode: Vec<u8>,
     entrypoint: Vec<u8>,
 }
@@ -31,14 +36,15 @@ impl PyApp {
     }
 }
 
-impl LambdaAppTrait for PyApp {
+impl Trait for PyApp {
     async fn exec(&self, sandbox: Sandbox, params: HashMap<String, String>) -> Vec<u8> {
         unimplemented!()
     }
 }
 
+/// A bash lambda
 #[derive(Serialize, Deserialize)]
-struct BashApp {
+pub struct BashApp {
     script: Vec<u8>,
 }
 
@@ -48,7 +54,7 @@ impl BashApp {
     }
 }
 
-impl LambdaAppTrait for BashApp {
+impl Trait for BashApp {
     async fn exec(&self, sandbox: Sandbox, params: HashMap<String, String>) -> Vec<u8> {
         unimplemented!()
     }
