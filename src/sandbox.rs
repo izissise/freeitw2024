@@ -1,3 +1,5 @@
+use anyhow::Result;
+
 use enum_dispatch::enum_dispatch;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -17,7 +19,8 @@ pub enum SandboxKind {
 #[allow(async_fn_in_trait)]
 #[enum_dispatch(SandboxKind)]
 pub trait Trait {
-    async fn exec(&self, params: HashMap<String, String>) -> Vec<u8>;
+    /// Execute in the sandbox
+    async fn exec(&self, params: HashMap<String, String>) -> Result<Vec<u8>>;
 }
 
 /// A no sandbox sandbox
@@ -28,13 +31,15 @@ pub struct Host {
 }
 
 impl Host {
-    fn new(shell: bool) -> Self {
+    /// Create a host env
+    #[must_use]
+    pub fn new(shell: bool) -> Self {
         Self { shell }
     }
 }
 
 impl Trait for Host {
-    async fn exec(&self, params: HashMap<String, String>) -> Vec<u8> {
+    async fn exec(&self, _params: HashMap<String, String>) -> Result<Vec<u8>> {
         todo!();
     }
 }
@@ -46,13 +51,15 @@ pub struct BubbleWrap {
 }
 
 impl BubbleWrap {
-    fn new(options: Vec<String>) -> Self {
+    /// Create a bwrap env
+    #[must_use]
+    pub fn new(options: Vec<String>) -> Self {
         Self { options }
     }
 }
 
 impl Trait for BubbleWrap {
-    async fn exec(&self, params: HashMap<String, String>) -> Vec<u8> {
+    async fn exec(&self, _params: HashMap<String, String>) -> Result<Vec<u8>> {
         todo!();
     }
 }

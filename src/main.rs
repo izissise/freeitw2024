@@ -1,9 +1,10 @@
 use anyhow::Result;
 use axum::{
     body::Body,
-    extract::{Query, State},
+    extract::{Path, Query, State},
+    http::StatusCode,
     response::{IntoResponse, Response, Result as HttpResult},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use serde::Deserialize;
@@ -13,7 +14,9 @@ use std::{
 };
 use tower_http::trace::TraceLayer;
 
-use interviewfree::{HttpErr, LambdaApp, Pagination, Sandbox};
+use interviewfree::{
+    HttpErr, LambdaApp, LambdaTrait, Pagination, Sandbox, SandboxBubbleWrap, SandboxHost,
+};
 
 struct ApiState {
     lambdas: HashMap<String, LambdaApp>,
@@ -28,6 +31,8 @@ async fn main() -> Result<()> {
     // Setup tracing
     tracing_subscriber::fmt::init();
 
+    // TODO create bubblewrap sandbox
+
     let state =
         Arc::new(RwLock::new(ApiState { lambdas: HashMap::new(), sandboxs: HashMap::new() }));
 
@@ -35,6 +40,8 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/sandboxs", get(sandboxs_index))
         .route("/lambdas", get(lambdas_index).put(lambdas_insert))
+        .route("/lambdas/:name/exec", post(lambda_exec))
+        .route("/lambdas/:name", get(lambda_get).delete(lambda_delete))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
@@ -88,5 +95,36 @@ async fn lambdas_insert(
     let mut state = s.write().map_err(|e| anyhow::anyhow! { e.to_string() })?; // With map errors this way because PoisonError are not `Send`
     let lambdas = &mut state.lambdas;
     let _ = lambdas.insert(lambdasinsert.name, lambdasinsert.app);
-    Ok("".into_response())
+    Ok(StatusCode::CREATED.into_response())
+}
+
+async fn lambda_get(Path(name): Path<String>, State(s): State<ApiStateWrapper>) -> HttpResponse {
+    let state = s.read().map_err(|e| anyhow::anyhow! { e.to_string() })?; // With map errors this way because PoisonError are not `Send`
+    let lambdas = &state.lambdas;
+    let lambda = lambdas.get(&name).ok_or_else(|| anyhow::anyhow! { "Not found" })?; // TODO fix
+
+    Ok(Json(lambda).into_response())
+}
+
+async fn lambda_delete(Path(name): Path<String>, State(s): State<ApiStateWrapper>) -> HttpResponse {
+    let mut state = s.write().map_err(|e| anyhow::anyhow! { e.to_string() })?; // With map errors this way because PoisonError are not `Send`
+    let lambdas = &mut state.lambdas;
+    lambdas.remove(&name).ok_or_else(|| anyhow::anyhow! { "Not found" })?; // TODO fix
+
+    Ok(StatusCode::OK.into_response())
+}
+
+async fn lambda_exec(
+    Path(name): Path<String>,
+    State(s): State<ApiStateWrapper>,
+    _params: Json<serde_json::Value>,
+) -> HttpResponse {
+    let state = s.read().map_err(|e| anyhow::anyhow! { e.to_string() })?; // With map errors this way because PoisonError are not `Send`
+    let lambdas = &state.lambdas;
+    let lambda = lambdas.get(&name).ok_or_else(|| anyhow::anyhow! { "Not found" })?; // TODO fix
+
+    // FIXME the await in the following provoke the compile error
+    // let res = lambda.exec(Sandbox::Host(SandboxHost::new(true)), HashMap::new()).await; // TODO params
+
+    Ok(StatusCode::OK.into_response())
 }

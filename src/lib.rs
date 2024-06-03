@@ -68,6 +68,9 @@ mod pagination;
 mod sandbox;
 
 pub use error::HttpErr;
-pub use lambda_app::LambdaAppKind as LambdaApp;
+pub use lambda_app::{LambdaAppKind as LambdaApp, Trait as LambdaTrait};
 pub use pagination::Pagination;
-pub use sandbox::SandboxKind as Sandbox;
+pub use sandbox::{
+    BubbleWrap as SandboxBubbleWrap, Host as SandboxHost, SandboxKind as Sandbox,
+    Trait as SandboxTrait,
+};
