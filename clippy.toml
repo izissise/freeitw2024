@@ -1,0 +1,14 @@
+# Lint list
+# https://rust-lang.github.io/rust-clippy/master/index.html
+
+# More lints are specified in lib.rs
+
+await-holding-invalid-types = [
+  "tracing::trace::Entered",
+  "tracing::trace::EnteredSpan",
+]
+cognitive-complexity-threshold = 30
+#allow-unwrap-in-tests = true
+too-many-lines-threshold = 200
+max-struct-bools = 10
+max-fn-params-bools = 3
