@@ -1,3 +1,9 @@
+# TODO
+
+- Qemu VM?
+- Docker container?
+
+
 # Test technique RUST
 
 # Objectif

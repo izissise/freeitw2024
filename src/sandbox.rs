@@ -9,6 +9,7 @@ pub enum Sandbox {
     BubbleWrap(BubbleWrapSandbox),
 }
 
+#[allow(async_fn_in_trait)]
 #[enum_dispatch(Sandbox)]
 pub trait SandboxTrait {
     async fn exec(&self, params: HashMap<String, String>) -> Vec<u8>;

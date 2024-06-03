@@ -1,9 +1,9 @@
 use anyhow::Result;
 use axum::{
-    extract::{Path, Query},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, patch},
+    routing::{get},
     Json, Router,
 };
 use std::{
@@ -11,96 +11,53 @@ use std::{
     sync::{Arc, RwLock},
 };
 use tokio;
+use tracing_subscriber;
+use tower_http::trace::TraceLayer;
+use serde::Deserialize;
 
-use interviewfree::{LambdaApp, Sandbox};
+use interviewfree::{ApiError, Pagination, LambdaApp, Sandbox};
 
-struct State {
+struct ApiState {
     apps: HashMap<String, LambdaApp>,
     sandboxs: HashMap<String, Sandbox>,
 }
 
+type ApiStateWrapper = Arc<RwLock<ApiState>>;
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    let state = Arc::new(RwLock::new(State { apps: HashMap::new(), sandboxs: HashMap::new() }));
+    // Setup tracing
+    tracing_subscriber::fmt::init();
+
+    let state = Arc::new(RwLock::new(ApiState { apps: HashMap::new(), sandboxs: HashMap::new() }));
 
     // Compose the routes
     let app = Router::new()
-        .route("/apps", get(todos_index).post(todos_create))
-        .route("/todos/:id", patch(todos_update).delete(todos_delete))
+        .route("/apps",
+               get(apps_index)
+        )
+        .layer(TraceLayer::new_for_http())
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind(":3000").await?;
+    let listener = tokio::net::TcpListener::bind(":::3000").await?;
     Ok(axum::serve(listener, app).await?)
 }
 
-// The query parameters for todos index
-#[derive(Debug, Deserialize, Default)]
-pub struct Pagination {
-    pub offset: Option<usize>,
-    pub limit: Option<usize>,
-}
-
-async fn todos_index(
+async fn apps_index(
     pagination: Option<Query<Pagination>>,
-    State(db): State<Db>,
+    State(s): State<ApiStateWrapper>,
 ) -> impl IntoResponse {
-    let todos = db.read().unwrap();
+    let state = s.read().unwrap(); // TODO handle error
+    let apps = &state.apps;
 
     let Query(pagination) = pagination.unwrap_or_default();
 
-    let todos = todos
+    let apps = apps
         .values()
-        .skip(pagination.offset.unwrap_or(0))
-        .take(pagination.limit.unwrap_or(usize::MAX))
-        .cloned()
+        .skip(pagination.offset)
+        .take(pagination.limit)
         .collect::<Vec<_>>();
 
-    Json(todos)
+    Json(apps).into_response()
 }
 
-#[derive(Debug, Deserialize)]
-struct CreateTodo {
-    text: String,
-}
-
-async fn todos_create(State(db): State<Db>, Json(input): Json<CreateTodo>) -> impl IntoResponse {
-    let todo = Todo { id: 34, text: input.text, completed: false };
-
-    db.write().unwrap().insert(todo.id, todo.clone());
-
-    (StatusCode::CREATED, Json(todo))
-}
-
-#[derive(Debug, Deserialize)]
-struct UpdateTodo {
-    text: Option<String>,
-    completed: Option<bool>,
-}
-
-async fn todos_update(
-    Path(id): Path<u32>,
-    State(db): State<Db>,
-    Json(input): Json<UpdateTodo>,
-) -> Result<impl IntoResponse, StatusCode> {
-    let mut todo = db.read().unwrap().get(&id).cloned().ok_or(StatusCode::NOT_FOUND)?;
-
-    if let Some(text) = input.text {
-        todo.text = text;
-    }
-
-    if let Some(completed) = input.completed {
-        todo.completed = completed;
-    }
-
-    db.write().unwrap().insert(todo.id, todo.clone());
-
-    Ok(Json(todo))
-}
-
-async fn todos_delete(Path(id): Path<u32>, State(db): State<Db>) -> impl IntoResponse {
-    if db.write().unwrap().remove(&id).is_some() {
-        StatusCode::NO_CONTENT
-    } else {
-        StatusCode::NOT_FOUND
-    }
-}

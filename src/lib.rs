@@ -56,6 +56,9 @@
 pub mod error;
 pub mod lambda_app;
 pub mod sandbox;
+pub mod pagination;
 
+pub use error::ApiError;
+pub use pagination::Pagination;
 pub use lambda_app::LambdaApp;
 pub use sandbox::Sandbox;

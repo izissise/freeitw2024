@@ -1,12 +1,10 @@
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::get,
-    Router,
 };
 
-// Make our own error that wraps `anyhow::Error`.
-struct ApiError(anyhow::Error);
+/// Make our own error that wraps `anyhow::Error`.
+pub struct ApiError(anyhow::Error);
 
 // Tell axum how to convert `ApiError` into a response.
 impl IntoResponse for ApiError {

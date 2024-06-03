@@ -7,7 +7,7 @@ edition = "2021"
 tokio = { version = "1.38", features = ["full"] }
 tokio-util = "0.7"
 tower = "0.4"
-tower-http = "0.5"
+tower-http = { version = "0.5", features = [ "trace" ] }
 tracing-subscriber = "0.3.18"
 axum = { version = "0.7", features = ["http1", "http2", "json", "matched-path"] }
 axum-extra = { version = "0.9", features = ["query", "multipart"] }
