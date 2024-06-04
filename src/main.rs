@@ -30,45 +30,43 @@ type HttpResponse = HttpResult<Response<Body>, HttpErr>;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::init();
     // Setup tracing
     tracing_subscriber::fmt::init();
 
-    // TODO create bubblewrap sandbox
-    let host_sb = SandboxHost;
-
+    let wd = "/tmp/freeitw_wd".to_string();
+    std::fs::create_dir_all(&wd)?;
+    let host_sb = SandboxHost(wd.clone());
     let init = BashApp::new(
         r#"
-        #!/bin/env bash
-        set -ex
-        WD=$1
-        rm -rf "$WD"
-        mkdir -p "$WD"
+#!/bin/env bash
+set -ex
+WD=$1
+rm -rf "$WD"
+mkdir -p "$WD"/host "$WD"/bwrap
 
-        command -v python3 &>/dev/null || exit 127
-        command -v pip3 &>/dev/null || exit 127
-        command -v bwrap &>/dev/null || exit 127
+command -v python3 &>/dev/null || exit 127
+command -v pip3 &>/dev/null || exit 127
+command -v bwrap &>/dev/null || exit 127
 
-        python3 -m venv "$WD"
-        source "$WD"/bin/activate
-        pip3 install panda
+python3 -m venv "$WD"
+source "$WD"/bwrap/bin/activate
+pip3 install panda
     "#
         .as_bytes()
         .to_owned(),
     );
 
-    let wd = "/tmp/freeitw_wd";
+    let host_wd = wd.clone() + "/host";
+    let bwrap_wd = wd.clone() + "/bwrap";
 
     info!("Setup bwrap sandbox...");
-    let init = init.spawn(&host_sb, &[wd])?;
+    let init = init.spawn(&host_sb, &[&wd])?;
     let out = init.wait_with_output().await?;
     info!("Done");
 
     let bwrap_sb = SandboxBubbleWrap::new(
+        bwrap_wd,
         [
-            "--bind",
-            wd,
-            "/wd",
             "--ro-bind",
             "/lib",
             "/lib",
@@ -118,6 +116,7 @@ async fn main() -> Result<()> {
         .collect(),
     );
 
+    let host_sb = SandboxHost(host_wd);
     let mut sandboxs = HashMap::new();
     let _ = sandboxs.insert("host".to_string(), Sandbox::Host(host_sb));
     let _ = sandboxs.insert("bwrap".to_string(), Sandbox::BubbleWrap(bwrap_sb));

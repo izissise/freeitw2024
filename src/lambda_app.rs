@@ -1,11 +1,13 @@
 use anyhow::Result;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use tokio::process::Child;
 
 use serde::{Deserialize, Serialize};
 
 use enum_dispatch::enum_dispatch;
 
-use crate::{Sandbox, SandboxTrait};
+use crate::SandboxTrait;
 
 /// Kind of lambda app for now Python or Bash
 #[allow(clippy::module_name_repetitions)]
@@ -35,7 +37,12 @@ pub struct PyApp {
 }
 
 impl Trait for PyApp {
-    fn spawn(&self, _sandbox: &impl SandboxTrait, _params: &[&str]) -> Result<Child> {
+    fn spawn(&self, sandbox: &impl SandboxTrait, _params: &[&str]) -> Result<Child> {
+        let mut hasher = DefaultHasher::new();
+        self.pycode.hash(&mut hasher);
+        let hash_value = hasher.finish();
+        let pname = hash_value.to_string();
+        sandbox.injest(&self.pycode, &pname)?;
         unimplemented!()
     }
 }
@@ -55,7 +62,12 @@ impl BashApp {
 }
 
 impl Trait for BashApp {
-    fn spawn(&self, _sandbox: &impl SandboxTrait, _params: &[&str]) -> Result<Child> {
-        unimplemented!()
+    fn spawn(&self, sandbox: &impl SandboxTrait, params: &[&str]) -> Result<Child> {
+        let mut hasher = DefaultHasher::new();
+        self.script.hash(&mut hasher);
+        let hash_value = hasher.finish();
+        let pname = hash_value.to_string();
+        sandbox.injest(&self.script, &pname)?;
+        sandbox.spawn(&pname, params)
     }
 }

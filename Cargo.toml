@@ -22,7 +22,6 @@ clap = { version = "4", features = ["cargo", "wrap_help"] }
 const_format = { version = "0.2" }
 enum_dispatch = { version = "0.3" }
 log = "0.4"
-env_logger = "0.11"
 
 # Maybe
 hot-lib-reloader = { version = "0.6.5" }
