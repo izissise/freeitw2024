@@ -11,7 +11,7 @@ tower-http = { version = "0.5", features = [ "trace" ] }
 tracing-subscriber = "0.3.18"
 axum = { version = "0.7", features = ["http1", "http2", "json", "matched-path"] }
 axum-extra = { version = "0.9", features = ["query", "multipart"] }
-axum-macros = "0.4"
+# axum-macros = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 url = { version = "2.3", features = ["serde"] }

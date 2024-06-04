@@ -114,7 +114,6 @@ async fn lambda_delete(Path(name): Path<String>, State(s): State<ApiStateWrapper
     Ok(StatusCode::OK.into_response())
 }
 
-#[axum_macros::debug_handler]
 async fn lambda_exec(
     Path(name): Path<String>,
     State(s): State<ApiStateWrapper>,

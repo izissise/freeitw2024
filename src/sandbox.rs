@@ -1,7 +1,5 @@
 use anyhow::Result;
 
-use axum::async_trait;
-
 use enum_dispatch::enum_dispatch;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -19,7 +17,6 @@ pub enum SandboxKind {
 
 /// Trait to implement sandboxes
 #[allow(async_fn_in_trait)]
-#[async_trait]
 #[enum_dispatch(SandboxKind)]
 pub trait Trait {
     /// Execute in the sandbox
@@ -41,7 +38,6 @@ impl Host {
     }
 }
 
-#[async_trait]
 impl Trait for Host {
     async fn exec(&self, _params: HashMap<String, String>) -> Result<Vec<u8>> {
         todo!();
@@ -62,7 +58,6 @@ impl BubbleWrap {
     }
 }
 
-#[async_trait]
 impl Trait for BubbleWrap {
     async fn exec(&self, _params: HashMap<String, String>) -> Result<Vec<u8>> {
         todo!();

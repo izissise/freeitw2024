@@ -1,7 +1,5 @@
 use anyhow::Result;
 
-use axum::async_trait;
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -22,7 +20,6 @@ pub enum LambdaAppKind {
 
 /// Lambda App trait implement exec to execute the lambda kind
 #[allow(async_fn_in_trait)]
-#[async_trait]
 #[enum_dispatch(LambdaAppKind)]
 pub trait Trait {
     /// Execute lambda
@@ -40,7 +37,6 @@ pub struct PyApp {
     entrypoint: Vec<u8>,
 }
 
-#[async_trait]
 impl Trait for PyApp {
     async fn exec(
         &self,
@@ -57,7 +53,6 @@ pub struct BashApp {
     script: Vec<u8>,
 }
 
-#[async_trait]
 impl Trait for BashApp {
     async fn exec(
         &self,
