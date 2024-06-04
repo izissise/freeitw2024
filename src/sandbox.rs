@@ -1,12 +1,14 @@
 use anyhow::Result;
 
+use axum::async_trait;
+
 use enum_dispatch::enum_dispatch;
 use serde::Serialize;
 use std::collections::HashMap;
 
 /// Kind of sandbox to isolate code
 #[allow(clippy::module_name_repetitions)]
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[enum_dispatch]
 pub enum SandboxKind {
     /// Host wrapper
@@ -17,6 +19,7 @@ pub enum SandboxKind {
 
 /// Trait to implement sandboxes
 #[allow(async_fn_in_trait)]
+#[async_trait]
 #[enum_dispatch(SandboxKind)]
 pub trait Trait {
     /// Execute in the sandbox
@@ -24,7 +27,7 @@ pub trait Trait {
 }
 
 /// A no sandbox sandbox
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct Host {
     /// Use a shell?
     shell: bool,
@@ -38,6 +41,7 @@ impl Host {
     }
 }
 
+#[async_trait]
 impl Trait for Host {
     async fn exec(&self, _params: HashMap<String, String>) -> Result<Vec<u8>> {
         todo!();
@@ -45,7 +49,7 @@ impl Trait for Host {
 }
 
 /// Bwrap sandbox
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct BubbleWrap {
     options: Vec<String>,
 }
@@ -58,6 +62,7 @@ impl BubbleWrap {
     }
 }
 
+#[async_trait]
 impl Trait for BubbleWrap {
     async fn exec(&self, _params: HashMap<String, String>) -> Result<Vec<u8>> {
         todo!();

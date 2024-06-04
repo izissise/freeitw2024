@@ -114,17 +114,23 @@ async fn lambda_delete(Path(name): Path<String>, State(s): State<ApiStateWrapper
     Ok(StatusCode::OK.into_response())
 }
 
+#[axum_macros::debug_handler]
 async fn lambda_exec(
     Path(name): Path<String>,
     State(s): State<ApiStateWrapper>,
     _params: Json<serde_json::Value>,
 ) -> HttpResponse {
-    let state = s.read().map_err(|e| anyhow::anyhow! { e.to_string() })?; // With map errors this way because PoisonError are not `Send`
-    let lambdas = &state.lambdas;
-    let lambda = lambdas.get(&name).ok_or_else(|| anyhow::anyhow! { "Not found" })?; // TODO fix
+    // Here we need to retrieve and clone the lambda definition
+    // because ReadLockGuard is !Send and so we cannot keep it across an await point
+    // (it would need to be locked and unlocked on the same thread which tokio doesn't guarantee)
+    let lambda = {
+        let state = s.read().map_err(|e| anyhow::anyhow! { e.to_string() })?; // With map errors this way because PoisonError are not `Send`
+        let lambdas = &state.lambdas;
+        lambdas.get(&name).ok_or_else(|| anyhow::anyhow! { "Not found" })?.clone()
+        // FIXME without cloning?
+    };
 
-    // FIXME the await in the following provoke the compile error
-    // let res = lambda.exec(Sandbox::Host(SandboxHost::new(true)), HashMap::new()).await; // TODO params
+    let res = lambda.exec(SandboxHost::new(true), HashMap::new()).await?;
 
-    Ok(StatusCode::OK.into_response())
+    Ok(res.into_response())
 }
