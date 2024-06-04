@@ -1,7 +1,7 @@
 use anyhow::Result;
+use tokio::process::Child;
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 use enum_dispatch::enum_dispatch;
 
@@ -18,16 +18,13 @@ pub enum LambdaAppKind {
     Bash(BashApp),
 }
 
-/// Lambda App trait implement exec to execute the lambda kind
-#[allow(async_fn_in_trait)]
+/// Lambda App trait implement spawn to spawnute the lambda kind
 #[enum_dispatch(LambdaAppKind)]
 pub trait Trait {
     /// Execute lambda
-    async fn exec(
-        &self,
-        sandbox: impl SandboxTrait + Send,
-        params: HashMap<String, String>,
-    ) -> Result<Vec<u8>>;
+    /// # Errors
+    ///     when Child spawn failed
+    fn spawn(&self, sandbox: &impl SandboxTrait, params: &[&str]) -> Result<Child>;
 }
 
 /// A python lambda
@@ -38,11 +35,7 @@ pub struct PyApp {
 }
 
 impl Trait for PyApp {
-    async fn exec(
-        &self,
-        _sandbox: impl SandboxTrait + Send,
-        _params: HashMap<String, String>,
-    ) -> Result<Vec<u8>> {
+    fn spawn(&self, _sandbox: &impl SandboxTrait, _params: &[&str]) -> Result<Child> {
         unimplemented!()
     }
 }
@@ -53,12 +46,16 @@ pub struct BashApp {
     script: Vec<u8>,
 }
 
+impl BashApp {
+    /// Create a new `BashApp`
+    #[must_use]
+    pub fn new(script: Vec<u8>) -> Self {
+        Self { script }
+    }
+}
+
 impl Trait for BashApp {
-    async fn exec(
-        &self,
-        _sandbox: impl SandboxTrait + Send,
-        _params: HashMap<String, String>,
-    ) -> Result<Vec<u8>> {
+    fn spawn(&self, _sandbox: &impl SandboxTrait, _params: &[&str]) -> Result<Child> {
         unimplemented!()
     }
 }

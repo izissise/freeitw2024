@@ -25,18 +25,7 @@ pub trait Trait {
 
 /// A no sandbox sandbox
 #[derive(Serialize, Clone)]
-pub struct Host {
-    /// Use a shell?
-    shell: bool,
-}
-
-impl Host {
-    /// Create a host env
-    #[must_use]
-    pub fn new(shell: bool) -> Self {
-        Self { shell }
-    }
-}
+pub struct Host;
 
 impl Trait for Host {
     async fn exec(&self, _params: HashMap<String, String>) -> Result<Vec<u8>> {

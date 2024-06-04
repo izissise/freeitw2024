@@ -14,8 +14,10 @@ use std::{
 };
 use tower_http::trace::TraceLayer;
 
+use log::*;
+
 use interviewfree::{
-    HttpErr, LambdaApp, LambdaTrait, Pagination, Sandbox, SandboxBubbleWrap, SandboxHost,
+    BashApp, HttpErr, LambdaApp, LambdaTrait, Pagination, Sandbox, SandboxBubbleWrap, SandboxHost,
 };
 
 struct ApiState {
@@ -28,13 +30,99 @@ type HttpResponse = HttpResult<Response<Body>, HttpErr>;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    env_logger::init();
     // Setup tracing
     tracing_subscriber::fmt::init();
 
     // TODO create bubblewrap sandbox
+    let host_sb = SandboxHost;
 
-    let state =
-        Arc::new(RwLock::new(ApiState { lambdas: HashMap::new(), sandboxs: HashMap::new() }));
+    let init = BashApp::new(
+        r#"
+        #!/bin/env bash
+        set -ex
+        WD=$1
+        rm -rf "$WD"
+        mkdir -p "$WD"
+
+        command -v python3 &>/dev/null || exit 127
+        command -v pip3 &>/dev/null || exit 127
+        command -v bwrap &>/dev/null || exit 127
+
+        python3 -m venv "$WD"
+        source "$WD"/bin/activate
+        pip3 install panda
+    "#
+        .as_bytes()
+        .to_owned(),
+    );
+
+    let wd = "/tmp/freeitw_wd";
+
+    info!("Setup bwrap sandbox...");
+    let init = init.spawn(&host_sb, &[wd])?;
+    let out = init.wait_with_output().await?;
+    info!("Done");
+
+    let bwrap_sb = SandboxBubbleWrap::new(
+        [
+            "--bind",
+            wd,
+            "/wd",
+            "--ro-bind",
+            "/lib",
+            "/lib",
+            "--ro-bind",
+            "/lib64",
+            "/lib64",
+            "--ro-bind",
+            "/usr",
+            "/usr",
+            "--ro-bind",
+            "/bin",
+            "/bin",
+            "--ro-bind",
+            "/etc/alternatives",
+            "/etc/alternatives",
+            "/app",
+            "--ro-bind",
+            "/etc/ssl/certs",
+            "/etc/ssl/certs",
+            "--ro-bind",
+            "/usr/share/ca-certificates",
+            "/usr/share/ca-certificates",
+            "--ro-bind",
+            "/etc/resolv.conf",
+            "/etc/resolv.conf",
+            "--ro-bind",
+            "/run/systemd/resolve/stub-resolv.conf",
+            "/run/systemd/resolve/stub-resolv.conf",
+            "--ro-bind",
+            "/etc/machine-id",
+            "/etc/machine-id",
+            "--dev",
+            "/dev",
+            "--proc",
+            "/proc",
+            "--tmpfs",
+            "/tmp",
+            "--unshare-all",
+            "--share-net",
+            "--hostname",
+            "RESTRICTED",
+            "--die-with-parent",
+            "--new-session",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect(),
+    );
+
+    let mut sandboxs = HashMap::new();
+    let _ = sandboxs.insert("host".to_string(), Sandbox::Host(host_sb));
+    let _ = sandboxs.insert("bwrap".to_string(), Sandbox::BubbleWrap(bwrap_sb));
+
+    let state = Arc::new(RwLock::new(ApiState { lambdas: HashMap::new(), sandboxs }));
 
     // Compose the routes
     let app = Router::new()
@@ -45,6 +133,7 @@ async fn main() -> Result<()> {
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
+    info!("Listening on port 3000");
     let listener = tokio::net::TcpListener::bind(":::3000").await?;
     Ok(axum::serve(listener, app).await?)
 }
@@ -141,7 +230,9 @@ async fn lambda_exec(
         lambdas.get(&name).ok_or(StatusCode::NOT_FOUND)?.clone()
     };
 
-    let res = lambda.exec(SandboxHost::new(true), HashMap::new()).await?;
+    // TODO choose sandbox from params
+    // let child = lambda.spawn(SandboxHost::default(), &[])?;
+    // let status = child.await?;
 
-    Ok(res.into_response())
+    Ok(StatusCode::OK.into_response())
 }
