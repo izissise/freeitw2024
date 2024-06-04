@@ -37,18 +37,16 @@ async fn main() -> Result<()> {
     std::fs::create_dir_all(&wd)?;
     let host_sb = SandboxHost(wd.clone());
     let init = BashApp::new(
-        r#"
-#!/bin/env bash
+        r#"#!/bin/env bash
 set -ex
 WD=$1
-rm -rf "$WD"
 mkdir -p "$WD"/host "$WD"/bwrap
 
 command -v python3 &>/dev/null || exit 127
 command -v pip3 &>/dev/null || exit 127
 command -v bwrap &>/dev/null || exit 127
 
-python3 -m venv "$WD"
+python3 -m venv "$WD"/bwrap
 source "$WD"/bwrap/bin/activate
 pip3 install panda
     "#
@@ -62,6 +60,9 @@ pip3 install panda
     info!("Setup bwrap sandbox...");
     let init = init.spawn(&host_sb, &[&wd])?;
     let out = init.wait_with_output().await?;
+    if !out.status.success() {
+        return Err(anyhow::anyhow!(out.status));
+    }
     info!("Done");
 
     let bwrap_sb = SandboxBubbleWrap::new(
