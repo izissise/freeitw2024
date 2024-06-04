@@ -49,11 +49,23 @@ async fn main() -> Result<()> {
     Ok(axum::serve(listener, app).await?)
 }
 
+/// Return state locked for reading
+fn lock_state_read(state: &ApiStateWrapper) -> Result<std::sync::RwLockReadGuard<'_, ApiState>> {
+    // With map errors to string because PoisonError are not `Send`
+    state.read().map_err(move |e| anyhow::anyhow! { e.to_string() })
+}
+
+/// Return state locked for writing
+fn lock_state_write(state: &ApiStateWrapper) -> Result<std::sync::RwLockWriteGuard<'_, ApiState>> {
+    // With map errors to string because PoisonError are not `Send`
+    state.write().map_err(move |e| anyhow::anyhow! { e.to_string() })
+}
+
 async fn sandboxs_index(
     pagination: Option<Query<Pagination>>,
     State(s): State<ApiStateWrapper>,
 ) -> HttpResponse {
-    let state = s.read().map_err(|e| anyhow::anyhow! { e.to_string() })?; // With map errors this way because PoisonError are not `Send`
+    let state = lock_state_read(&s)?;
     let sandboxs = &state.sandboxs;
 
     let Query(pagination) = pagination.unwrap_or_default();
@@ -68,7 +80,7 @@ async fn lambdas_index(
     pagination: Option<Query<Pagination>>,
     State(s): State<ApiStateWrapper>,
 ) -> HttpResponse {
-    let state = s.read().map_err(|e| anyhow::anyhow! { e.to_string() })?; // With map errors this way because PoisonError are not `Send`
+    let state = lock_state_read(&s)?;
     let lambdas = &state.lambdas;
 
     let Query(pagination) = pagination.unwrap_or_default();
@@ -92,24 +104,24 @@ async fn lambdas_insert(
 ) -> HttpResponse {
     let lambdasinsert = lambdasinsert.0;
 
-    let mut state = s.write().map_err(|e| anyhow::anyhow! { e.to_string() })?; // With map errors this way because PoisonError are not `Send`
+    let mut state = lock_state_write(&s)?;
     let lambdas = &mut state.lambdas;
     let _ = lambdas.insert(lambdasinsert.name, lambdasinsert.app);
     Ok(StatusCode::CREATED.into_response())
 }
 
 async fn lambda_get(Path(name): Path<String>, State(s): State<ApiStateWrapper>) -> HttpResponse {
-    let state = s.read().map_err(|e| anyhow::anyhow! { e.to_string() })?; // With map errors this way because PoisonError are not `Send`
+    let state = lock_state_read(&s)?;
     let lambdas = &state.lambdas;
-    let lambda = lambdas.get(&name).ok_or_else(|| anyhow::anyhow! { "Not found" })?; // TODO fix
+    let lambda = lambdas.get(&name).ok_or(StatusCode::NOT_FOUND)?;
 
     Ok(Json(lambda).into_response())
 }
 
 async fn lambda_delete(Path(name): Path<String>, State(s): State<ApiStateWrapper>) -> HttpResponse {
-    let mut state = s.write().map_err(|e| anyhow::anyhow! { e.to_string() })?; // With map errors this way because PoisonError are not `Send`
+    let mut state = lock_state_write(&s)?;
     let lambdas = &mut state.lambdas;
-    lambdas.remove(&name).ok_or_else(|| anyhow::anyhow! { "Not found" })?; // TODO fix
+    lambdas.remove(&name).ok_or(StatusCode::NOT_FOUND)?;
 
     Ok(StatusCode::OK.into_response())
 }
@@ -122,11 +134,11 @@ async fn lambda_exec(
     // Here we need to retrieve and clone the lambda definition
     // because ReadLockGuard is !Send and so we cannot keep it across an await point
     // (it would need to be locked and unlocked on the same thread which tokio doesn't guarantee)
+    // FIXME without cloning?
     let lambda = {
-        let state = s.read().map_err(|e| anyhow::anyhow! { e.to_string() })?; // With map errors this way because PoisonError are not `Send`
+        let state = lock_state_read(&s)?;
         let lambdas = &state.lambdas;
-        lambdas.get(&name).ok_or_else(|| anyhow::anyhow! { "Not found" })?.clone()
-        // FIXME without cloning?
+        lambdas.get(&name).ok_or(StatusCode::NOT_FOUND)?.clone()
     };
 
     let res = lambda.exec(SandboxHost::new(true), HashMap::new()).await?;
