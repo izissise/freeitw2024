@@ -38,13 +38,19 @@ pub struct PyApp {
 }
 
 impl Trait for PyApp {
-    fn spawn(&self, sandbox: &impl SandboxTrait, _params: &[&str]) -> Result<Child> {
+    fn spawn(&self, sandbox: &impl SandboxTrait, params: &[&str]) -> Result<Child> {
+        // make sure it has shebang
+        let pycode = "#!/bin/env python3\n".to_string() + &self.pycode;
+
+        // create file unique name
         let mut hasher = DefaultHasher::new();
-        self.pycode.hash(&mut hasher);
+        pycode.hash(&mut hasher);
         let hash_value = hasher.finish();
         let pname = hash_value.to_string() + ".py";
-        sandbox.injest(self.pycode.as_bytes(), &pname)?;
-        unimplemented!()
+        sandbox.injest(pycode.as_bytes(), &pname)?;
+
+        // spawn
+        sandbox.spawn(&pname, params)
     }
 }
 
@@ -65,11 +71,17 @@ impl BashApp {
 
 impl Trait for BashApp {
     fn spawn(&self, sandbox: &impl SandboxTrait, params: &[&str]) -> Result<Child> {
+        // make sure it has shebang
+        let script = "#!/bin/env bash\n".to_string() + &self.script;
+
+        // create file unique name
         let mut hasher = DefaultHasher::new();
-        self.script.hash(&mut hasher);
+        script.hash(&mut hasher);
         let hash_value = hasher.finish();
         let pname = hash_value.to_string() + ".bash";
-        sandbox.injest(self.script.as_bytes(), &pname)?;
+        sandbox.injest(script.as_bytes(), &pname)?;
+
+        // spawn
         sandbox.spawn(&pname, params)
     }
 }

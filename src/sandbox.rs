@@ -37,7 +37,9 @@ pub struct Host(pub String);
 
 impl Trait for Host {
     fn spawn(&self, prg: &str, params: &[&str]) -> Result<Child> {
-        Ok(Command::new(self.0.clone() + "/" + prg).args(params).current_dir(&self.0).spawn()?)
+        Ok(dbg!(Command::new(self.0.clone() + "/" + prg).args(params))
+            .current_dir(&self.0)
+            .spawn()?)
     }
 
     fn injest(&self, content: &[u8], filename: &str) -> Result<()> {

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use axum::{
-    body::Body,
-    extract::{Path, Query, State},
+    body::{to_bytes, Body},
+    extract::{Path, Query, Request, State},
     http::StatusCode,
     response::{IntoResponse, Response, Result as HttpResult},
     routing::{get, post},
@@ -165,7 +165,7 @@ async fn sandboxs_index(
 
     let Query(pagination) = pagination.unwrap_or_default();
 
-    let sandboxs: HashMap<&String, &Sandbox> =
+    let sandboxs: HashMap<_, _> =
         sandboxs.iter().skip(pagination.offset).take(pagination.limit).collect();
 
     Ok(Json(sandboxs).into_response())
@@ -180,7 +180,7 @@ async fn lambdas_index(
 
     let Query(pagination) = pagination.unwrap_or_default();
 
-    let lambdas: HashMap<&String, &LambdaApp> =
+    let lambdas: HashMap<_, _> =
         lambdas.iter().skip(pagination.offset).take(pagination.limit).collect();
 
     Ok(Json(lambdas).into_response())
@@ -224,8 +224,12 @@ async fn lambda_delete(Path(name): Path<String>, State(s): State<ApiStateWrapper
 async fn lambda_exec(
     Path(name): Path<String>,
     State(s): State<ApiStateWrapper>,
-    _params: Json<serde_json::Value>,
+    req: Request<Body>,
 ) -> HttpResponse {
+    let body = to_bytes(req.into_body(), usize::MAX).await.map_err(anyhow::Error::from)?;
+    let body_text = String::from_utf8(body.into()).map_err(anyhow::Error::from)?;
+    let params = body_text.as_str().split_whitespace().collect::<Vec<_>>();
+
     // Here we need to retrieve and drop the lambda definition
     // because ReadLockGuard is !Send and so we cannot keep it across an await point
     // (it would need to be locked and unlocked on the same thread during child wait() which tokio doesn't guarantee)
@@ -236,10 +240,10 @@ async fn lambda_exec(
         let lambda = lambdas.get(&name).ok_or(StatusCode::NOT_FOUND)?;
         // TODO choose sandbox from header
         let sandbox = sandboxs.get("host").ok_or(StatusCode::NOT_FOUND)?;
-        lambda.spawn(sandbox, &[])?
+        lambda.spawn(sandbox, &params)?
     };
 
-    let _status = child.wait().await.unwrap(); // FIXME
+    let _status = child.wait().await.map_err(anyhow::Error::from)?;
 
     Ok(StatusCode::OK.into_response())
 }
