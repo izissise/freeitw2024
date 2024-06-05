@@ -1,3 +1,59 @@
+//! Free interview 2024
+
+// Macro options
+#![recursion_limit = "512"]
+// Lints
+#![warn(unsafe_code)]
+#![deny(unused_results)]
+#![warn(missing_docs)]
+// Clippy lint options
+// see clippy.toml
+// https://rust-lang.github.io/rust-clippy/master/index.html
+#![deny(
+    // Pedantic
+    clippy::pedantic,
+)]
+#![warn(
+    // Restriction
+    clippy::allow_attributes_without_reason,
+    clippy::decimal_literal_representation,
+    clippy::clone_on_ref_ptr,
+    clippy::create_dir,
+    clippy::dbg_macro,
+    clippy::default_union_representation,
+    clippy::exit,
+    clippy::fn_to_numeric_cast_any,
+    clippy::get_unwrap,
+    clippy::if_then_some_else_none,
+    clippy::let_underscore_must_use,
+    clippy::map_err_ignore,
+    clippy::mem_forget,
+    clippy::mod_module_files,
+    clippy::rc_buffer,
+    clippy::rc_mutex,
+    clippy::same_name_method,
+    clippy::shadow_unrelated,
+    clippy::try_err,
+    clippy::undocumented_unsafe_blocks,
+    clippy::unneeded_field_pattern,
+    clippy::unseparated_literal_suffix,
+    clippy::verbose_file_reads,
+    clippy::empty_drop,
+    clippy::mixed_read_write_in_expression,
+    // clippy::pub_use,
+
+    // Nursery
+    clippy::cognitive_complexity,
+    clippy::debug_assert_with_mut_call,
+    clippy::future_not_send,
+    clippy::imprecise_flops,
+
+    // Cargo
+//     clippy::multiple_crate_versions, // check from time to time
+    clippy::wildcard_dependencies,
+)]
+#![allow(clippy::match_bool)]
+
 use anyhow::Result;
 use axum::{
     body::Body,
@@ -8,7 +64,7 @@ use axum::{
     Json, Router,
 };
 use futures::TryStreamExt;
-use log::*;
+use log::info;
 use serde::Deserialize;
 use std::process::Stdio;
 use std::{
@@ -24,8 +80,24 @@ use tower_http::trace::TraceLayer;
 use tracing::Level;
 use tracing_subscriber::prelude::*;
 
-use interviewfree::{
-    BashApp, HttpErr, LambdaApp, LambdaTrait, Pagination, Sandbox, SandboxBubbleWrap, SandboxHost,
+/// Error module
+mod error;
+
+/// Lambda app module
+mod lambda_app;
+
+/// http Pagination
+mod pagination;
+
+/// Sandboxing
+mod sandbox;
+
+use error::HttpErr;
+use lambda_app::{BashApp, LambdaAppKind as LambdaApp, Trait as LambdaTrait};
+use pagination::Pagination;
+use sandbox::{
+    BubbleWrap as SandboxBubbleWrap, Host as SandboxHost, SandboxKind as Sandbox,
+    Trait as SandboxTrait,
 };
 
 struct ApiState {
@@ -52,7 +124,7 @@ async fn main() -> Result<()> {
 
     let wd = "/tmp/freeitw_wd".to_string();
     std::fs::create_dir_all(&wd)?;
-    let host_sb = SandboxHost(wd.clone());
+    let init_host_sb = SandboxHost(wd.clone());
     let init = BashApp::new(
         r#"#!/bin/env bash
 set -ex
@@ -74,7 +146,7 @@ pip3 install panda
 
     info!("Setup bwrap sandbox...");
     let init =
-        init.spawn(&host_sb, &[&wd], Stdio::inherit(), Stdio::inherit(), Stdio::inherit())?;
+        init.spawn(&init_host_sb, &[&wd], Stdio::inherit(), Stdio::inherit(), Stdio::inherit())?;
     let out = init.wait_with_output().await?;
     if !out.status.success() {
         return Err(anyhow::anyhow!(out.status));
@@ -224,7 +296,7 @@ async fn lambda_get(Path(name): Path<String>, State(s): State<ApiStateWrapper>) 
 async fn lambda_delete(Path(name): Path<String>, State(s): State<ApiStateWrapper>) -> HttpResponse {
     let mut state = lock_state_write(&s)?;
     let lambdas = &mut state.lambdas;
-    lambdas.remove(&name).ok_or(StatusCode::NOT_FOUND)?;
+    let _ = lambdas.remove(&name).ok_or(StatusCode::NOT_FOUND)?;
 
     Ok(StatusCode::OK.into_response())
 }
@@ -248,6 +320,7 @@ async fn lambda_exec(
     State(s): State<ApiStateWrapper>,
     req: Request,
 ) -> HttpResponse {
+    // Url query parameters
     let Query(params) = params.unwrap_or_default();
     let sandbox = params.sandbox;
     let args = params.args.split_whitespace().collect::<Vec<_>>();
@@ -270,9 +343,10 @@ async fn lambda_exec(
         let sandboxs = &state.sandboxs;
         let lambda = lambdas.get(&name).ok_or(StatusCode::NOT_FOUND)?;
         let sandbox = sandboxs.get(&sandbox).ok_or(StatusCode::NOT_FOUND)?;
-        (lambda.clone(), sandbox.clone())
+        (Arc::clone(lambda), Arc::clone(sandbox))
     };
 
+    // SPAWN THE CHILD PROCESS
     let mut child =
         lambda.spawn(&*sandbox, &args, Stdio::piped(), Stdio::piped(), Stdio::piped())?;
 
@@ -315,12 +389,4 @@ async fn lambda_exec(
     }
 
     Ok(StatusCode::OK.into_response())
-    // let out = child.wait_with_output().await.map_err(anyhow::Error::from)?;
-    // let status = out.status;
-    //
-    // let resp_body = [out.stdout, out.stderr].concat();
-    // Ok(match status.success() {
-    //     true => (StatusCode::OK, resp_body).into_response(),
-    //     false => (StatusCode::EXPECTATION_FAILED, resp_body).into_response(),
-    // })
 }
