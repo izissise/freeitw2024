@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::process::Stdio;
 use tokio::process::Child;
 
 use serde::{Deserialize, Serialize};
@@ -27,7 +28,14 @@ pub trait Trait {
     /// Execute lambda
     /// # Errors
     ///     when Child spawn failed
-    fn spawn(&self, sandbox: &impl SandboxTrait, params: &[&str]) -> Result<Child>;
+    fn spawn(
+        &self,
+        sandbox: &impl SandboxTrait,
+        params: &[&str],
+        stdin: Stdio,
+        stdout: Stdio,
+        stderr: Stdio,
+    ) -> Result<Child>;
 }
 
 /// A python lambda
@@ -38,7 +46,14 @@ pub struct PyApp {
 }
 
 impl Trait for PyApp {
-    fn spawn(&self, sandbox: &impl SandboxTrait, params: &[&str]) -> Result<Child> {
+    fn spawn(
+        &self,
+        sandbox: &impl SandboxTrait,
+        params: &[&str],
+        stdin: Stdio,
+        stdout: Stdio,
+        stderr: Stdio,
+    ) -> Result<Child> {
         // make sure it has shebang
         let pycode = "#!/bin/env python3\n".to_string() + &self.pycode;
 
@@ -50,7 +65,13 @@ impl Trait for PyApp {
         sandbox.injest(pycode.as_bytes(), &pname)?;
 
         // spawn
-        sandbox.spawn(&pname, params)
+        Ok(sandbox
+            .prepare_spawn(&pname)
+            .args(params)
+            .stdin(stdin)
+            .stdout(stdout)
+            .stderr(stderr)
+            .spawn()?)
     }
 }
 
@@ -70,7 +91,14 @@ impl BashApp {
 }
 
 impl Trait for BashApp {
-    fn spawn(&self, sandbox: &impl SandboxTrait, params: &[&str]) -> Result<Child> {
+    fn spawn(
+        &self,
+        sandbox: &impl SandboxTrait,
+        params: &[&str],
+        stdin: Stdio,
+        stdout: Stdio,
+        stderr: Stdio,
+    ) -> Result<Child> {
         // make sure it has shebang
         let script = "#!/bin/env bash\n".to_string() + &self.script;
 
@@ -82,6 +110,12 @@ impl Trait for BashApp {
         sandbox.injest(script.as_bytes(), &pname)?;
 
         // spawn
-        sandbox.spawn(&pname, params)
+        Ok(sandbox
+            .prepare_spawn(&pname)
+            .args(params)
+            .stdin(stdin)
+            .stdout(stdout)
+            .stderr(stderr)
+            .spawn()?)
     }
 }

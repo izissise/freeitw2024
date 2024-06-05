@@ -9,6 +9,7 @@ use axum::{
 };
 use log::*;
 use serde::Deserialize;
+use std::process::Stdio;
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
@@ -66,7 +67,8 @@ pip3 install panda
     let bwrap_wd = wd.clone() + "/bwrap";
 
     info!("Setup bwrap sandbox...");
-    let init = init.spawn(&host_sb, &[&wd])?;
+    let init =
+        init.spawn(&host_sb, &[&wd], Stdio::inherit(), Stdio::inherit(), Stdio::inherit())?;
     let out = init.wait_with_output().await?;
     if !out.status.success() {
         return Err(anyhow::anyhow!(out.status));
@@ -221,6 +223,8 @@ async fn lambda_delete(Path(name): Path<String>, State(s): State<ApiStateWrapper
     Ok(StatusCode::OK.into_response())
 }
 
+// TODO use query param for parameter
+// TODO Use body for stdin
 async fn lambda_exec(
     Path(name): Path<String>,
     State(s): State<ApiStateWrapper>,
@@ -233,17 +237,22 @@ async fn lambda_exec(
     // Here we need to retrieve and drop the lambda definition
     // because ReadLockGuard is !Send and so we cannot keep it across an await point
     // (it would need to be locked and unlocked on the same thread during child wait() which tokio doesn't guarantee)
-    let mut child = {
+    let child = {
         let state = lock_state_read(&s)?;
         let lambdas = &state.lambdas;
         let sandboxs = &state.sandboxs;
         let lambda = lambdas.get(&name).ok_or(StatusCode::NOT_FOUND)?;
         // TODO choose sandbox from header
         let sandbox = sandboxs.get("host").ok_or(StatusCode::NOT_FOUND)?;
-        lambda.spawn(sandbox, &params)?
+        lambda.spawn(sandbox, &params, Stdio::piped(), Stdio::piped(), Stdio::piped())?
     };
 
-    let _status = child.wait().await.map_err(anyhow::Error::from)?;
+    let out = child.wait_with_output().await.map_err(anyhow::Error::from)?;
+    let status = out.status;
 
-    Ok(StatusCode::OK.into_response())
+    let resp_body = [out.stdout, out.stderr].concat();
+    Ok(match status.success() {
+        true => (StatusCode::OK, resp_body).into_response(),
+        false => (StatusCode::EXPECTATION_FAILED, resp_body).into_response(),
+    })
 }

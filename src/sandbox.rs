@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::fs;
 use std::io::prelude::*;
 use std::os::unix::fs::PermissionsExt;
-use tokio::process::{Child, Command};
+use tokio::process::Command;
 
 use enum_dispatch::enum_dispatch;
 use serde::Serialize;
@@ -24,7 +24,7 @@ pub trait Trait {
     /// Spawn in the sandbox
     /// # Errors
     ///     Command errors
-    fn spawn(&self, prg: &str, params: &[&str]) -> Result<Child>;
+    fn prepare_spawn(&self, prg: &str) -> Command;
     /// Copy resource in the sandbox
     /// # Errors
     ///     IO errors
@@ -36,10 +36,10 @@ pub trait Trait {
 pub struct Host(pub String);
 
 impl Trait for Host {
-    fn spawn(&self, prg: &str, params: &[&str]) -> Result<Child> {
-        Ok(dbg!(Command::new(self.0.clone() + "/" + prg).args(params))
-            .current_dir(&self.0)
-            .spawn()?)
+    fn prepare_spawn(&self, prg: &str) -> Command {
+        let mut cmd = Command::new(self.0.clone() + "/" + prg);
+        let _ = cmd.current_dir(&self.0);
+        cmd
     }
 
     fn injest(&self, content: &[u8], filename: &str) -> Result<()> {
@@ -68,17 +68,14 @@ impl BubbleWrap {
 }
 
 impl Trait for BubbleWrap {
-    fn spawn(&self, prg: &str, params: &[&str]) -> Result<Child> {
-        if params.is_empty() {
-            return Err(anyhow::anyhow!(" Need at least one parameter "));
-        }
-        Ok(Command::new("/usr/bin/bwrap")
+    fn prepare_spawn(&self, prg: &str) -> Command {
+        let mut cmd = Command::new("/usr/bin/bwrap");
+        let _ = cmd
             .args(["--bind", self.path.as_str(), "/wd"])
             .args(&self.options)
             .args(["--"])
-            .args(["/wd/".to_string() + prg])
-            .args(params)
-            .spawn()?)
+            .args(["/wd/".to_string() + prg]);
+        cmd
     }
 
     fn injest(&self, content: &[u8], filename: &str) -> Result<()> {
