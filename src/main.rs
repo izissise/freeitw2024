@@ -1,12 +1,13 @@
 use anyhow::Result;
 use axum::{
-    body::{to_bytes, Body},
+    body::Body,
     extract::{Path, Query, Request, State},
     http::StatusCode,
     response::{IntoResponse, Response, Result as HttpResult},
     routing::{get, post},
     Json, Router,
 };
+use futures::TryStreamExt;
 use log::*;
 use serde::Deserialize;
 use std::process::Stdio;
@@ -14,6 +15,11 @@ use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
 };
+use tokio::{
+    io::{copy, AsyncReadExt, BufReader},
+    select,
+};
+use tokio_util::io::StreamReader;
 use tower_http::trace::TraceLayer;
 use tracing::Level;
 use tracing_subscriber::prelude::*;
@@ -23,8 +29,8 @@ use interviewfree::{
 };
 
 struct ApiState {
-    lambdas: HashMap<String, LambdaApp>,
-    sandboxs: HashMap<String, Sandbox>,
+    lambdas: HashMap<String, Arc<LambdaApp>>,
+    sandboxs: HashMap<String, Arc<Sandbox>>,
 }
 
 type ApiStateWrapper = Arc<RwLock<ApiState>>;
@@ -127,8 +133,8 @@ pip3 install panda
 
     let host_sb = SandboxHost(host_wd);
     let mut sandboxs = HashMap::new();
-    let _ = sandboxs.insert("host".to_string(), Sandbox::Host(host_sb));
-    let _ = sandboxs.insert("bwrap".to_string(), Sandbox::BubbleWrap(bwrap_sb));
+    let _ = sandboxs.insert("host".to_string(), Arc::new(Sandbox::Host(host_sb)));
+    let _ = sandboxs.insert("bwrap".to_string(), Arc::new(Sandbox::BubbleWrap(bwrap_sb)));
 
     let state = Arc::new(RwLock::new(ApiState { lambdas: HashMap::new(), sandboxs }));
 
@@ -203,7 +209,7 @@ async fn lambdas_insert(
 
     let mut state = lock_state_write(&s)?;
     let lambdas = &mut state.lambdas;
-    let _ = lambdas.insert(lambdasinsert.name, lambdasinsert.app);
+    let _ = lambdas.insert(lambdasinsert.name, Arc::new(lambdasinsert.app));
     Ok(StatusCode::CREATED.into_response())
 }
 
@@ -223,36 +229,98 @@ async fn lambda_delete(Path(name): Path<String>, State(s): State<ApiStateWrapper
     Ok(StatusCode::OK.into_response())
 }
 
-// TODO use query param for parameter
-// TODO Use body for stdin
+#[derive(Debug, Deserialize)]
+struct ExecParams {
+    sandbox: String,
+    args: String,
+    status: bool,
+}
+
+impl Default for ExecParams {
+    fn default() -> Self {
+        Self { sandbox: "host".to_string(), args: String::new(), status: false }
+    }
+}
+
 async fn lambda_exec(
+    params: Option<Query<ExecParams>>,
     Path(name): Path<String>,
     State(s): State<ApiStateWrapper>,
-    req: Request<Body>,
+    req: Request,
 ) -> HttpResponse {
-    let body = to_bytes(req.into_body(), usize::MAX).await.map_err(anyhow::Error::from)?;
-    let body_text = String::from_utf8(body.into()).map_err(anyhow::Error::from)?;
-    let params = body_text.as_str().split_whitespace().collect::<Vec<_>>();
+    let Query(params) = params.unwrap_or_default();
+    let sandbox = params.sandbox;
+    let args = params.args.split_whitespace().collect::<Vec<_>>();
+    let print_status = params.status;
 
-    // Here we need to retrieve and drop the lambda definition
+    // Convert the body into an `AsyncRead`.
+    let body = req.into_body().into_data_stream();
+    let body_with_io_error =
+        body.map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err));
+    let body_reader = StreamReader::new(body_with_io_error);
+    futures::pin_mut!(body_reader);
+
+    // Here we need to retrieve and drop the state lock
     // because ReadLockGuard is !Send and so we cannot keep it across an await point
     // (it would need to be locked and unlocked on the same thread during child wait() which tokio doesn't guarantee)
-    let child = {
+    // Since our state uses Arc, clone is just a ptr copy
+    let (lambda, sandbox) = {
         let state = lock_state_read(&s)?;
         let lambdas = &state.lambdas;
         let sandboxs = &state.sandboxs;
         let lambda = lambdas.get(&name).ok_or(StatusCode::NOT_FOUND)?;
-        // TODO choose sandbox from header
-        let sandbox = sandboxs.get("host").ok_or(StatusCode::NOT_FOUND)?;
-        lambda.spawn(sandbox, &params, Stdio::piped(), Stdio::piped(), Stdio::piped())?
+        let sandbox = sandboxs.get(&sandbox).ok_or(StatusCode::NOT_FOUND)?;
+        (lambda.clone(), sandbox.clone())
     };
 
-    let out = child.wait_with_output().await.map_err(anyhow::Error::from)?;
-    let status = out.status;
+    let mut child =
+        lambda.spawn(&*sandbox, &args, Stdio::piped(), Stdio::piped(), Stdio::piped())?;
 
-    let resp_body = [out.stdout, out.stderr].concat();
-    Ok(match status.success() {
-        true => (StatusCode::OK, resp_body).into_response(),
-        false => (StatusCode::EXPECTATION_FAILED, resp_body).into_response(),
-    })
+    let mut stdin = child.stdin.take().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let stdout = BufReader::new(child.stdout.take().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?);
+    let stderr = BufReader::new(child.stderr.take().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?);
+    futures::pin_mut!(stdout);
+    futures::pin_mut!(stderr);
+    let mut stdout_buf = vec![0_u8; 128];
+    let mut stderr_buf = vec![0_u8; 128];
+
+    let mut child_alive = true;
+    while child_alive {
+        select! {
+            _ = copy(&mut body_reader, &mut stdin) => {
+                // Copy body to process stdin,
+            },
+            status = child.wait() => {
+                let status = status?;
+                if print_status {
+                    // TODO add final text with status
+                }
+                dbg!(status);
+                child_alive = false;
+            },
+            n = stdout.read(&mut stdout_buf) => {
+                let n = n?;
+                let b = &stdout_buf[..n];
+                println!("{}", String::from_utf8(b.to_vec()).unwrap());
+                // TODO stream to response
+            }
+            n = stderr.read(&mut stderr_buf) => {
+                let n = n?;
+                let b = &stderr_buf[..n];
+                println!("{}", String::from_utf8(b.to_vec()).unwrap());
+                // TODO stream to response
+            }
+        }
+    }
+
+    Ok(StatusCode::OK.into_response())
+    // let out = child.wait_with_output().await.map_err(anyhow::Error::from)?;
+    // let status = out.status;
+    //
+    // let resp_body = [out.stdout, out.stderr].concat();
+    // Ok(match status.success() {
+    //     true => (StatusCode::OK, resp_body).into_response(),
+    //     false => (StatusCode::EXPECTATION_FAILED, resp_body).into_response(),
+    // })
 }

@@ -11,6 +11,9 @@ pub enum HttpErr {
     /// a generic error
     #[error("generic")]
     Err(#[from] anyhow::Error),
+    /// io error
+    #[error("io")]
+    Io(#[from] std::io::Error),
     /// An http status
     #[error("status code")]
     Status(StatusCode),
@@ -24,6 +27,7 @@ impl IntoResponse for HttpErr {
                 (StatusCode::INTERNAL_SERVER_ERROR, format!("Something went wrong: {e}"))
                     .into_response()
             }
+            Self::Io(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("IO: {e}")).into_response(),
             Self::Status(sc) => sc.into_response(),
         }
     }
