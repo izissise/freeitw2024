@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 use axum::{
-    http::StatusCode,
+    http::{Error as AxumError, StatusCode},
     response::{IntoResponse, Response},
 };
 
@@ -14,6 +14,9 @@ pub enum HttpErr {
     /// io error
     #[error("io")]
     Io(#[from] std::io::Error),
+    /// An Axum error
+    #[error("axum")]
+    Axum(#[from] AxumError),
     /// An http status
     #[error("status code")]
     Status(StatusCode),
@@ -28,6 +31,9 @@ impl IntoResponse for HttpErr {
                     .into_response()
             }
             Self::Io(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("IO: {e}")).into_response(),
+            Self::Axum(e) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("IO: {e}")).into_response()
+            }
             Self::Status(sc) => sc.into_response(),
         }
     }

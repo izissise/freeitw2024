@@ -1,5 +1,6 @@
 //! Free interview 2024
 
+#![doc = include_str!("../Readme.md")]
 // Macro options
 #![recursion_limit = "512"]
 // Lints
@@ -56,7 +57,7 @@
 
 use anyhow::Result;
 use axum::{
-    body::Body,
+    body::{Body, Bytes},
     extract::{Path, Query, Request, State},
     http::StatusCode,
     response::{IntoResponse, Response, Result as HttpResult},
@@ -74,6 +75,7 @@ use std::{
 use tokio::{
     io::{copy, AsyncReadExt, BufReader},
     select,
+    sync::mpsc,
 };
 use tokio_util::io::StreamReader;
 use tower_http::trace::TraceLayer;
@@ -325,7 +327,6 @@ async fn lambda_exec(
     let body_with_io_error =
         body.map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err));
     let body_reader = StreamReader::new(body_with_io_error);
-    futures::pin_mut!(body_reader);
 
     // Here we need to retrieve and drop the state lock
     // because ReadLockGuard is !Send and so we cannot keep it across an await point
@@ -347,39 +348,61 @@ async fn lambda_exec(
 
     let stdout = BufReader::new(child.stdout.take().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?);
     let stderr = BufReader::new(child.stderr.take().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?);
-    futures::pin_mut!(stdout);
-    futures::pin_mut!(stderr);
-    let mut stdout_buf = vec![0_u8; 128];
-    let mut stderr_buf = vec![0_u8; 128];
 
-    let mut child_alive = true;
-    while child_alive {
-        select! {
-            _ = copy(&mut body_reader, &mut stdin) => {
-                // Copy body to process stdin,
-            },
-            status = child.wait() => {
-                let status = status?;
-                if print_status {
-                    // TODO add final text with status
+    let (tx, mut rx) = mpsc::channel::<Result<Bytes, HttpErr>>(4);
+
+    #[allow(clippy::let_underscore_future)]
+    let _ = tokio::spawn(async move {
+        futures::pin_mut!(body_reader);
+        futures::pin_mut!(stdout);
+        futures::pin_mut!(stderr);
+        let mut stdout_buf = vec![0_u8; 128];
+        let mut stderr_buf = vec![0_u8; 128];
+
+        // FIXME echo back doesn't work
+        let mut child_alive = true;
+        while child_alive {
+            select! {
+                _r = copy(&mut body_reader, &mut stdin) => {
+                    // Copy body to process stdin
+                    // TODO use r
+                },
+                status = child.wait() => {
+                    let status = match status {
+                        Err(e) => return tx.send(Err(HttpErr::Io(e))).await.expect("channel to be alive"),
+                        Ok(status) => status,
+                    };
+                    if print_status {
+                        let t = format!("Exit status {status}");
+                        let () = tx.send(Ok(Bytes::from(t))).await.expect("channel to be alive");
+                    }
+                    child_alive = false;
+                },
+                n = stdout.read(&mut stdout_buf) => {
+                    let n = match n {
+                        Err(e) => return tx.send(Err(HttpErr::Io(e))).await.expect("channel to be alive"),
+                        Ok(n) => n,
+                    };
+                    let b = stdout_buf[..n].to_vec();
+                    let () = tx.send(Ok(Bytes::from(b))).await.expect("channel to be alive");
                 }
-                dbg!(status);
-                child_alive = false;
-            },
-            n = stdout.read(&mut stdout_buf) => {
-                let n = n?;
-                let b = &stdout_buf[..n];
-                println!("{}", String::from_utf8(b.to_vec()).unwrap());
-                // TODO stream to response
-            }
-            n = stderr.read(&mut stderr_buf) => {
-                let n = n?;
-                let b = &stderr_buf[..n];
-                println!("{}", String::from_utf8(b.to_vec()).unwrap());
-                // TODO stream to response
+                n = stderr.read(&mut stderr_buf) => {
+                    let n = match n {
+                        Err(e) => return tx.send(Err(HttpErr::Io(e))).await.expect("channel to be alive"),
+                        Ok(n) => n,
+                    };
+                    let b = stderr_buf[..n].to_vec();
+                    let () = tx.send(Ok(Bytes::from(b))).await.expect("channel to be alive");
+                }
             }
         }
-    }
+    });
 
-    Ok(StatusCode::OK.into_response())
+    let stream = async_stream::stream! {
+        while let Some(item) = rx.recv().await {
+            yield item;
+        }
+    };
+
+    Ok(Response::builder().status(StatusCode::OK).body(Body::from_stream(stream))?)
 }
