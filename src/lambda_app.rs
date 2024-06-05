@@ -41,7 +41,7 @@ impl Trait for PyApp {
         let mut hasher = DefaultHasher::new();
         self.pycode.hash(&mut hasher);
         let hash_value = hasher.finish();
-        let pname = hash_value.to_string();
+        let pname = hash_value.to_string() + ".py";
         sandbox.injest(&self.pycode, &pname)?;
         unimplemented!()
     }
@@ -66,7 +66,7 @@ impl Trait for BashApp {
         let mut hasher = DefaultHasher::new();
         self.script.hash(&mut hasher);
         let hash_value = hasher.finish();
-        let pname = hash_value.to_string();
+        let pname = hash_value.to_string() + ".bash";
         sandbox.injest(&self.script, &pname)?;
         sandbox.spawn(&pname, params)
     }
