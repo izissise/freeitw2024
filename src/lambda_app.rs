@@ -11,7 +11,8 @@ use crate::SandboxTrait;
 
 /// Kind of lambda app for now Python or Bash
 #[allow(clippy::module_name_repetitions)]
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 #[enum_dispatch]
 pub enum LambdaAppKind {
     /// Python wrapper
@@ -30,10 +31,10 @@ pub trait Trait {
 }
 
 /// A python lambda
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct PyApp {
-    pycode: Vec<u8>,
-    entrypoint: Vec<u8>,
+    pycode: String,
+    entrypoint: String,
 }
 
 impl Trait for PyApp {
@@ -42,21 +43,22 @@ impl Trait for PyApp {
         self.pycode.hash(&mut hasher);
         let hash_value = hasher.finish();
         let pname = hash_value.to_string() + ".py";
-        sandbox.injest(&self.pycode, &pname)?;
+        sandbox.injest(self.pycode.as_bytes(), &pname)?;
         unimplemented!()
     }
 }
 
 /// A bash lambda
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct BashApp {
-    script: Vec<u8>,
+    script: String,
 }
 
 impl BashApp {
     /// Create a new `BashApp`
     #[must_use]
-    pub fn new(script: Vec<u8>) -> Self {
+    pub fn new<S: Into<String>>(script: S) -> Self {
+        let script = script.into();
         Self { script }
     }
 }
@@ -67,7 +69,7 @@ impl Trait for BashApp {
         self.script.hash(&mut hasher);
         let hash_value = hasher.finish();
         let pname = hash_value.to_string() + ".bash";
-        sandbox.injest(&self.script, &pname)?;
+        sandbox.injest(self.script.as_bytes(), &pname)?;
         sandbox.spawn(&pname, params)
     }
 }

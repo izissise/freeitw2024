@@ -9,7 +9,7 @@ use serde::Serialize;
 
 /// Kind of sandbox to isolate code
 #[allow(clippy::module_name_repetitions)]
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Debug)]
 #[enum_dispatch]
 pub enum SandboxKind {
     /// Host wrapper
@@ -32,14 +32,12 @@ pub trait Trait {
 }
 
 /// A no sandbox sandbox
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Debug)]
 pub struct Host(pub String);
 
 impl Trait for Host {
     fn spawn(&self, prg: &str, params: &[&str]) -> Result<Child> {
-        Ok(Command::new(self.0.clone() + "/" + prg).args(params)
-            .current_dir(&self.0)
-            .spawn()?)
+        Ok(Command::new(self.0.clone() + "/" + prg).args(params).current_dir(&self.0).spawn()?)
     }
 
     fn injest(&self, content: &[u8], filename: &str) -> Result<()> {
@@ -52,7 +50,7 @@ impl Trait for Host {
 }
 
 /// Bwrap sandbox
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Debug)]
 pub struct BubbleWrap {
     path: String,
     options: Vec<String>,

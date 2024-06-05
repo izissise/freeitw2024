@@ -36,14 +36,3 @@ impl From<StatusCode> for HttpErr {
         Self::Status(sc)
     }
 }
-
-// This enables using `?` on functions that return `Result<_, anyhow::Error>` to turn them into
-// `Result<_, HttpErr>`. That way you don't need to do that manually.
-// impl<E> From<E> for HttpErr
-// where
-//     E: Into<anyhow::Error>,
-// {
-//     fn from(err: E) -> Self {
-//         Self::Err(err.into())
-//     }
-// }

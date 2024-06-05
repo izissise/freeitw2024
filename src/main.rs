@@ -7,14 +7,15 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use log::*;
 use serde::Deserialize;
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
 };
 use tower_http::trace::TraceLayer;
-
-use log::*;
+use tracing::Level;
+use tracing_subscriber::prelude::*;
 
 use interviewfree::{
     BashApp, HttpErr, LambdaApp, LambdaTrait, Pagination, Sandbox, SandboxBubbleWrap, SandboxHost,
@@ -31,7 +32,16 @@ type HttpResponse = HttpResult<Response<Body>, HttpErr>;
 #[tokio::main]
 async fn main() -> Result<()> {
     // Setup tracing
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(
+            tracing_subscriber::filter::Targets::new()
+                .with_target("tower_http::trace::on_response", Level::DEBUG)
+                .with_target("tower_http::trace::on_request", Level::DEBUG)
+                .with_target("tower_http::trace::make_span", Level::DEBUG)
+                .with_default(Level::INFO),
+        )
+        .init();
 
     let wd = "/tmp/freeitw_wd".to_string();
     std::fs::create_dir_all(&wd)?;
@@ -49,9 +59,7 @@ command -v bwrap &>/dev/null || exit 127
 python3 -m venv "$WD"/bwrap
 source "$WD"/bwrap/bin/activate
 pip3 install panda
-    "#
-        .as_bytes()
-        .to_owned(),
+    "#,
     );
 
     let host_wd = wd.clone() + "/host";
@@ -63,8 +71,6 @@ pip3 install panda
     if !out.status.success() {
         return Err(anyhow::anyhow!(out.status));
     }
-    info!("Done");
-
     let bwrap_sb = SandboxBubbleWrap::new(
         bwrap_wd,
         [
@@ -159,8 +165,8 @@ async fn sandboxs_index(
 
     let Query(pagination) = pagination.unwrap_or_default();
 
-    let sandboxs =
-        sandboxs.values().skip(pagination.offset).take(pagination.limit).collect::<Vec<_>>();
+    let sandboxs: HashMap<&String, &Sandbox> =
+        sandboxs.iter().skip(pagination.offset).take(pagination.limit).collect();
 
     Ok(Json(sandboxs).into_response())
 }
@@ -174,8 +180,8 @@ async fn lambdas_index(
 
     let Query(pagination) = pagination.unwrap_or_default();
 
-    let lambdas =
-        lambdas.values().skip(pagination.offset).take(pagination.limit).collect::<Vec<_>>();
+    let lambdas: HashMap<&String, &LambdaApp> =
+        lambdas.iter().skip(pagination.offset).take(pagination.limit).collect();
 
     Ok(Json(lambdas).into_response())
 }
@@ -220,19 +226,21 @@ async fn lambda_exec(
     State(s): State<ApiStateWrapper>,
     _params: Json<serde_json::Value>,
 ) -> HttpResponse {
-    // Here we need to retrieve and clone the lambda definition
+    // Here we need to retrieve and drop the lambda definition
     // because ReadLockGuard is !Send and so we cannot keep it across an await point
     // (it would need to be locked and unlocked on the same thread which tokio doesn't guarantee)
     // FIXME without cloning?
-    let lambda = {
+    let mut child = {
         let state = lock_state_read(&s)?;
         let lambdas = &state.lambdas;
-        lambdas.get(&name).ok_or(StatusCode::NOT_FOUND)?.clone()
+        let sandboxs = &state.sandboxs;
+        let lambda = lambdas.get(&name).ok_or(StatusCode::NOT_FOUND)?;
+        // TODO choose sandbox from params
+        let sandbox = sandboxs.get("host").ok_or(StatusCode::NOT_FOUND)?;
+        lambda.spawn(sandbox, &[])?
     };
 
-    // TODO choose sandbox from params
-    // let child = lambda.spawn(SandboxHost::default(), &[])?;
-    // let status = child.await?;
+    let _status = child.wait().await.unwrap(); // FIXME
 
     Ok(StatusCode::OK.into_response())
 }
