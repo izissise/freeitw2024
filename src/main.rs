@@ -240,13 +240,11 @@ async fn sandboxs_index(
     pagination: Option<Query<Pagination>>,
     State(s): State<ApiStateWrapper>,
 ) -> HttpResponse {
-    let state = lock_state_read(&s)?;
-    let sandboxs = &state.sandboxs;
-
     let Query(pagination) = pagination.unwrap_or_default();
 
+    let state = lock_state_read(&s)?;
     let sandboxs: HashMap<_, _> =
-        sandboxs.iter().skip(pagination.offset).take(pagination.limit).collect();
+        state.sandboxs.iter().skip(pagination.offset).take(pagination.limit).collect();
 
     Ok(Json(sandboxs).into_response())
 }
@@ -255,13 +253,11 @@ async fn lambdas_index(
     pagination: Option<Query<Pagination>>,
     State(s): State<ApiStateWrapper>,
 ) -> HttpResponse {
-    let state = lock_state_read(&s)?;
-    let lambdas = &state.lambdas;
-
     let Query(pagination) = pagination.unwrap_or_default();
 
+    let state = lock_state_read(&s)?;
     let lambdas: HashMap<_, _> =
-        lambdas.iter().skip(pagination.offset).take(pagination.limit).collect();
+        state.lambdas.iter().skip(pagination.offset).take(pagination.limit).collect();
 
     Ok(Json(lambdas).into_response())
 }
@@ -280,23 +276,21 @@ async fn lambdas_insert(
     let lambdasinsert = lambdasinsert.0;
 
     let mut state = lock_state_write(&s)?;
-    let lambdas = &mut state.lambdas;
-    let _ = lambdas.insert(lambdasinsert.name, Arc::new(lambdasinsert.app));
+    let _ = state.lambdas.insert(lambdasinsert.name, Arc::new(lambdasinsert.app));
+
     Ok(StatusCode::CREATED.into_response())
 }
 
 async fn lambda_get(Path(name): Path<String>, State(s): State<ApiStateWrapper>) -> HttpResponse {
     let state = lock_state_read(&s)?;
-    let lambdas = &state.lambdas;
-    let lambda = lambdas.get(&name).ok_or(StatusCode::NOT_FOUND)?;
+    let lambda = state.lambdas.get(&name).ok_or(StatusCode::NOT_FOUND)?;
 
     Ok(Json(lambda).into_response())
 }
 
 async fn lambda_delete(Path(name): Path<String>, State(s): State<ApiStateWrapper>) -> HttpResponse {
     let mut state = lock_state_write(&s)?;
-    let lambdas = &mut state.lambdas;
-    let _ = lambdas.remove(&name).ok_or(StatusCode::NOT_FOUND)?;
+    let _ = state.lambdas.remove(&name).ok_or(StatusCode::NOT_FOUND)?;
 
     Ok(StatusCode::OK.into_response())
 }
@@ -339,11 +333,10 @@ async fn lambda_exec(
     // Since our state uses Arc, clone is just a ptr copy
     let (lambda, sandbox) = {
         let state = lock_state_read(&s)?;
-        let lambdas = &state.lambdas;
-        let sandboxs = &state.sandboxs;
-        let lambda = lambdas.get(&name).ok_or(StatusCode::NOT_FOUND)?;
-        let sandbox = sandboxs.get(&sandbox).ok_or(StatusCode::NOT_FOUND)?;
-        (Arc::clone(lambda), Arc::clone(sandbox))
+        (
+            Arc::clone(state.lambdas.get(&name).ok_or(StatusCode::NOT_FOUND)?),
+            Arc::clone(state.sandboxs.get(&sandbox).ok_or(StatusCode::NOT_FOUND)?),
+        )
     };
 
     // SPAWN THE CHILD PROCESS
