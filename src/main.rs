@@ -228,14 +228,13 @@ async fn lambda_exec(
 ) -> HttpResponse {
     // Here we need to retrieve and drop the lambda definition
     // because ReadLockGuard is !Send and so we cannot keep it across an await point
-    // (it would need to be locked and unlocked on the same thread which tokio doesn't guarantee)
-    // FIXME without cloning?
+    // (it would need to be locked and unlocked on the same thread during child wait() which tokio doesn't guarantee)
     let mut child = {
         let state = lock_state_read(&s)?;
         let lambdas = &state.lambdas;
         let sandboxs = &state.sandboxs;
         let lambda = lambdas.get(&name).ok_or(StatusCode::NOT_FOUND)?;
-        // TODO choose sandbox from params
+        // TODO choose sandbox from header
         let sandbox = sandboxs.get("host").ok_or(StatusCode::NOT_FOUND)?;
         lambda.spawn(sandbox, &[])?
     };

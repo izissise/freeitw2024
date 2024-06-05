@@ -13,4 +13,4 @@ for arg in "$@"; do
   url_params="${url_params}&param=${encoded_arg}"
 done
 
-curl -v -s -L -X POST "$API"/lambdas/"$1"/exec"?$url_params"
+curl -v -s -L -H 'Content-Type: application/json' -X POST "$API"/lambdas/"$LAMBDA"/exec"?$url_params" --data '{}'
