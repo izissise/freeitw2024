@@ -10,7 +10,7 @@ run_example() {
     jq -n --arg name "$1" --argjson "py" "$(jq -n --arg pycode "$code" --arg entrypoint "" '$ARGS.named')" '$ARGS.named' | "$HERE"/lambdas/put.sh
 
     echo "$1"
-    "$HERE"/lambdas/exec.sh "$1"
+    "$HERE"/lambdas/exec.sh "$1" "bwrap"
     echo
 }
 

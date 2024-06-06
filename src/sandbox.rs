@@ -76,7 +76,7 @@ impl Trait for BubbleWrap {
             .args(["--bind", self.path.as_str(), self.path.as_str()])
             .args(&self.options)
             .args(["--"])
-            .args([self.path.to_string() + prg]);
+            .args([self.path.to_string() + "/" + prg]);
         cmd
     }
 
@@ -109,7 +109,6 @@ pub fn default_sandboxs(host_wd: String, bwrap_wd: String) -> (Host, BubbleWrap)
             "--ro-bind",
             "/etc/alternatives",
             "/etc/alternatives",
-            "/app",
             "--ro-bind",
             "/etc/ssl/certs",
             "/etc/ssl/certs",
@@ -129,8 +128,6 @@ pub fn default_sandboxs(host_wd: String, bwrap_wd: String) -> (Host, BubbleWrap)
             "/dev",
             "--proc",
             "/proc",
-            "--tmpfs",
-            "/tmp",
             "--unshare-all",
             "--share-net",
             "--hostname",
