@@ -46,3 +46,10 @@ impl From<StatusCode> for HttpErr {
         Self::Status(sc)
     }
 }
+
+// StreamReader needs the error type to be Into<std::io::Error>
+impl From<HttpErr> for std::io::Error {
+    fn from(e: HttpErr) -> Self {
+        Self::other(e)
+    }
+}

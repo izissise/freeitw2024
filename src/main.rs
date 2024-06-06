@@ -64,6 +64,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use axum_extra::body::AsyncReadBody;
 use futures::TryStreamExt;
 use log::info;
 use serde::Deserialize;
@@ -77,6 +78,7 @@ use tokio::{
     select,
     sync::mpsc,
 };
+use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::io::StreamReader;
 use tower_http::trace::TraceLayer;
 use tracing::Level;
@@ -344,24 +346,24 @@ async fn lambda_exec(
     let mut child =
         lambda.spawn(&*sandbox, &args, Stdio::piped(), Stdio::piped(), Stdio::piped())?;
 
+    // setup streaming
     let mut stdin = child.stdin.take().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let stdout = BufReader::new(child.stdout.take().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?);
     let stderr = BufReader::new(child.stderr.take().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?);
 
-    let (tx, mut rx) = mpsc::channel::<Result<Bytes, HttpErr>>(4);
+    let mut body_reader = Box::pin(body_reader);
+    let mut stdout = Box::pin(stdout);
+    let mut stderr = Box::pin(stderr);
+    let mut stdout_buf = vec![0_u8; 128];
+    let mut stderr_buf = vec![0_u8; 128];
+
+    let (tx, rx) = mpsc::channel::<Result<Bytes, HttpErr>>(4);
 
     #[allow(clippy::let_underscore_future)]
     let _ = tokio::spawn(async move {
-        futures::pin_mut!(body_reader);
-        futures::pin_mut!(stdout);
-        futures::pin_mut!(stderr);
-        let mut stdout_buf = vec![0_u8; 128];
-        let mut stderr_buf = vec![0_u8; 128];
-
         // FIXME echo back doesn't work
-        let mut child_alive = true;
-        while child_alive {
+        loop {
             select! {
                 _r = copy(&mut body_reader, &mut stdin) => {
                     // Copy body to process stdin
@@ -372,21 +374,21 @@ async fn lambda_exec(
                         Err(e) => return tx.send(Err(HttpErr::Io(e))).await.expect("channel to be alive"),
                         Ok(status) => status,
                     };
-                    if print_status {
-                        let t = format!("Exit status {status}");
-                        let () = tx.send(Ok(Bytes::from(t))).await.expect("channel to be alive");
-                    }
-                    child_alive = false;
-                },
-                n = stdout.read(&mut stdout_buf) => {
+                   if print_status {
+                       let () = tx.send(Ok(Bytes::from(format!("Exit status {status}")))).await.expect("channel to be alive");
+                   }
+                   break;
+               },
+               n = stdout.read(&mut stdout_buf) => {
                     let n = match n {
                         Err(e) => return tx.send(Err(HttpErr::Io(e))).await.expect("channel to be alive"),
                         Ok(n) => n,
                     };
-                    let b = stdout_buf[..n].to_vec();
-                    let () = tx.send(Ok(Bytes::from(b))).await.expect("channel to be alive");
-                }
-                n = stderr.read(&mut stderr_buf) => {
+
+                   let b = stdout_buf[..n].to_vec();
+                   let () = tx.send(Ok(Bytes::from(b))).await.expect("channel to be alive");
+               }
+               n = stderr.read(&mut stderr_buf) => {
                     let n = match n {
                         Err(e) => return tx.send(Err(HttpErr::Io(e))).await.expect("channel to be alive"),
                         Ok(n) => n,
@@ -398,11 +400,6 @@ async fn lambda_exec(
         }
     });
 
-    let stream = async_stream::stream! {
-        while let Some(item) = rx.recv().await {
-            yield item;
-        }
-    };
-
-    Ok(Response::builder().status(StatusCode::OK).body(Body::from_stream(stream))?)
+    Ok((StatusCode::OK, AsyncReadBody::new(StreamReader::new(ReceiverStream::new(rx))))
+        .into_response())
 }

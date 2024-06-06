@@ -7,6 +7,8 @@ use tokio::process::Command;
 use enum_dispatch::enum_dispatch;
 use serde::Serialize;
 
+// TODO add docker
+
 /// Kind of sandbox to isolate code
 #[allow(clippy::module_name_repetitions)]
 #[derive(Serialize, Debug)]
