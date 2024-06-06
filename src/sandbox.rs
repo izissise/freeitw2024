@@ -73,10 +73,10 @@ impl Trait for BubbleWrap {
     fn prepare_spawn(&self, prg: &str) -> Command {
         let mut cmd = Command::new("/usr/bin/bwrap");
         let _ = cmd
-            .args(["--bind", self.path.as_str(), "/wd"])
+            .args(["--bind", self.path.as_str(), self.path.as_str()])
             .args(&self.options)
             .args(["--"])
-            .args(["/wd/".to_string() + prg]);
+            .args([self.path.to_string() + prg]);
         cmd
     }
 

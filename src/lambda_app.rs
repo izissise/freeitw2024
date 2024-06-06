@@ -67,6 +67,7 @@ impl Trait for PyApp {
         // spawn
         Ok(sandbox
             .prepare_spawn(&pname)
+            .envs([("PATH", "/tmp/freeitw_wd/bin:/sbin:/bin"), ("VIRTUAL_ENV", "/tmp/freeitw_wd")])
             .args(params)
             .stdin(stdin)
             .stdout(stdout)

@@ -132,20 +132,20 @@ async fn main() -> Result<()> {
         r#"#!/bin/env bash
 set -ex
 WD=$1
-mkdir -p "$WD"/host "$WD"/bwrap
+mkdir -p "$WD"
 
 command -v python3 &>/dev/null || exit 127
 command -v pip3 &>/dev/null || exit 127
 command -v bwrap &>/dev/null || exit 127
 
-python3 -m venv "$WD"/bwrap
-source "$WD"/bwrap/bin/activate
-pip3 install panda
+python3 -m venv "$WD"
+source "$WD"/bin/activate
+pip3 install pandas
     "#,
     );
 
-    let host_wd = wd.clone() + "/host";
-    let bwrap_wd = wd.clone() + "/bwrap";
+    let host_wd = wd.clone();
+    let bwrap_wd = wd.clone();
 
     info!("Setup bwrap sandbox...");
     let init =
