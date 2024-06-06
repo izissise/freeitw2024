@@ -74,7 +74,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 use tokio::{
-    io::{copy, AsyncReadExt, BufReader},
+    io::{AsyncReadExt, AsyncWriteExt, BufReader},
     select,
     sync::mpsc,
 };
@@ -100,8 +100,7 @@ use error::HttpErr;
 use lambda_app::{BashApp, LambdaAppKind as LambdaApp, Trait as LambdaTrait};
 use pagination::Pagination;
 use sandbox::{
-    BubbleWrap as SandboxBubbleWrap, Host as SandboxHost, SandboxKind as Sandbox,
-    Trait as SandboxTrait,
+    default_sandboxs, Host as SandboxHost, SandboxKind as Sandbox, Trait as SandboxTrait,
 };
 
 struct ApiState {
@@ -155,59 +154,8 @@ pip3 install panda
     if !out.status.success() {
         return Err(anyhow::anyhow!(out.status));
     }
-    let bwrap_sb = SandboxBubbleWrap::new(
-        bwrap_wd,
-        [
-            "--ro-bind",
-            "/lib",
-            "/lib",
-            "--ro-bind",
-            "/lib64",
-            "/lib64",
-            "--ro-bind",
-            "/usr",
-            "/usr",
-            "--ro-bind",
-            "/bin",
-            "/bin",
-            "--ro-bind",
-            "/etc/alternatives",
-            "/etc/alternatives",
-            "/app",
-            "--ro-bind",
-            "/etc/ssl/certs",
-            "/etc/ssl/certs",
-            "--ro-bind",
-            "/usr/share/ca-certificates",
-            "/usr/share/ca-certificates",
-            "--ro-bind",
-            "/etc/resolv.conf",
-            "/etc/resolv.conf",
-            "--ro-bind",
-            "/run/systemd/resolve/stub-resolv.conf",
-            "/run/systemd/resolve/stub-resolv.conf",
-            "--ro-bind",
-            "/etc/machine-id",
-            "/etc/machine-id",
-            "--dev",
-            "/dev",
-            "--proc",
-            "/proc",
-            "--tmpfs",
-            "/tmp",
-            "--unshare-all",
-            "--share-net",
-            "--hostname",
-            "RESTRICTED",
-            "--die-with-parent",
-            "--new-session",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect(),
-    );
+    let (host_sb, bwrap_sb) = default_sandboxs(host_wd, bwrap_wd);
 
-    let host_sb = SandboxHost(host_wd);
     let mut sandboxs = HashMap::new();
     let _ = sandboxs.insert("host".to_string(), Arc::new(Sandbox::Host(host_sb)));
     let _ = sandboxs.insert("bwrap".to_string(), Arc::new(Sandbox::BubbleWrap(bwrap_sb)));
@@ -325,7 +273,7 @@ async fn lambda_exec(
     let print_status = params.status;
 
     // Convert the body into an `AsyncRead`.
-    let body = req.into_body().into_data_stream();
+    let body = req.into_body().into_data_stream().map_err(std::io::Error::other);
     let body_with_io_error =
         body.map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err));
     let body_reader = StreamReader::new(body_with_io_error);
@@ -347,7 +295,7 @@ async fn lambda_exec(
         lambda.spawn(&*sandbox, &args, Stdio::piped(), Stdio::piped(), Stdio::piped())?;
 
     // setup streaming
-    let mut stdin = child.stdin.take().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let stdin = child.stdin.take().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let stdout = BufReader::new(child.stdout.take().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?);
     let stderr = BufReader::new(child.stderr.take().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?);
@@ -355,6 +303,7 @@ async fn lambda_exec(
     let mut body_reader = Box::pin(body_reader);
     let mut stdout = Box::pin(stdout);
     let mut stderr = Box::pin(stderr);
+    let mut stdin_buf = vec![0_u8; 128];
     let mut stdout_buf = vec![0_u8; 128];
     let mut stderr_buf = vec![0_u8; 128];
 
@@ -362,13 +311,9 @@ async fn lambda_exec(
 
     #[allow(clippy::let_underscore_future)]
     let _ = tokio::spawn(async move {
-        // FIXME echo back doesn't work
+        let mut stdin_container = Some(stdin);
         loop {
             select! {
-                _r = copy(&mut body_reader, &mut stdin) => {
-                    // Copy body to process stdin
-                    // TODO use r
-                },
                 status = child.wait() => {
                     let status = match status {
                         Err(e) => return tx.send(Err(HttpErr::Io(e))).await.expect("channel to be alive"),
@@ -379,6 +324,21 @@ async fn lambda_exec(
                    }
                    break;
                },
+               n = body_reader.read(&mut stdin_buf) => {
+                    let n = match n {
+                        Err(e) => return tx.send(Err(HttpErr::Io(e))).await.expect("channel to be alive"),
+                        Ok(n) => n,
+                    };
+                    if n == 0 {
+                        if let Some(child_stdin) = stdin_container.take() {
+                            // Drop stdin
+                            std::mem::drop(child_stdin);
+                        }
+                    }
+                    if let Some(child_stdin) = stdin_container.as_mut() {
+                        let _err = child_stdin.write_all(&stdin_buf[..n]).await.is_err();
+                    }
+               }
                n = stdout.read(&mut stdout_buf) => {
                     let n = match n {
                         Err(e) => return tx.send(Err(HttpErr::Io(e))).await.expect("channel to be alive"),

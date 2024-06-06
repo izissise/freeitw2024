@@ -88,3 +88,59 @@ impl Trait for BubbleWrap {
         Ok(())
     }
 }
+
+pub fn default_sandboxs(host_wd: String, bwrap_wd: String) -> (Host, BubbleWrap) {
+    let host_sb = Host(host_wd);
+    let bwrap_sb = BubbleWrap::new(
+        bwrap_wd,
+        [
+            "--ro-bind",
+            "/lib",
+            "/lib",
+            "--ro-bind",
+            "/lib64",
+            "/lib64",
+            "--ro-bind",
+            "/usr",
+            "/usr",
+            "--ro-bind",
+            "/bin",
+            "/bin",
+            "--ro-bind",
+            "/etc/alternatives",
+            "/etc/alternatives",
+            "/app",
+            "--ro-bind",
+            "/etc/ssl/certs",
+            "/etc/ssl/certs",
+            "--ro-bind",
+            "/usr/share/ca-certificates",
+            "/usr/share/ca-certificates",
+            "--ro-bind",
+            "/etc/resolv.conf",
+            "/etc/resolv.conf",
+            "--ro-bind",
+            "/run/systemd/resolve/stub-resolv.conf",
+            "/run/systemd/resolve/stub-resolv.conf",
+            "--ro-bind",
+            "/etc/machine-id",
+            "/etc/machine-id",
+            "--dev",
+            "/dev",
+            "--proc",
+            "/proc",
+            "--tmpfs",
+            "/tmp",
+            "--unshare-all",
+            "--share-net",
+            "--hostname",
+            "RESTRICTED",
+            "--die-with-parent",
+            "--new-session",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect(),
+    );
+    (host_sb, bwrap_sb)
+}
