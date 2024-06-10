@@ -1,10 +1,5 @@
 # Instructions
 
-Dependencies are as follow:
-```
-curl jq bwrap python3
-```
-
 If you're not on a Linux OS, it's probably better to run this in a Linux VM, as it hasn't been tested on other OSes.
 
 Full setup commands on a Debian-based host
