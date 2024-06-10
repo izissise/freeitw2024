@@ -92,7 +92,7 @@ use sandbox::{
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Setup tracing
+    // Setup tracing for logging
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer())
         .with(
@@ -104,9 +104,13 @@ async fn main() -> Result<()> {
         )
         .init();
 
+    // Working directory for the application
     let wd = "/tmp/freeitw_wd".to_string();
     std::fs::create_dir_all(&wd)?;
+
+    // Initialize the sandbox host
     let init_host_sb = SandboxHost(wd.clone());
+    // Create a new BashApp instance with the initialization script
     let init = BashApp::new(
         r#"#!/bin/env bash
 set -ex
@@ -127,18 +131,22 @@ pip3 install pandas
     let bwrap_wd = wd.clone();
 
     info!("Setup bwrap sandbox...");
+    // Spawn the initialization script
     let init =
         init.spawn(&init_host_sb, &[&wd], Stdio::inherit(), Stdio::inherit(), Stdio::inherit())?;
     let out = init.wait_with_output().await?;
     if !out.status.success() {
         return Err(anyhow::anyhow!(out.status));
     }
+    // Create the default sandboxes
     let (host_sb, bwrap_sb) = default_sandboxs(host_wd, bwrap_wd);
 
+    // Store sandboxes in a HashMap
     let mut sandboxs = HashMap::new();
     let _ = sandboxs.insert("host".to_string(), Arc::new(Sandbox::Host(host_sb)));
     let _ = sandboxs.insert("bwrap".to_string(), Arc::new(Sandbox::BubbleWrap(bwrap_sb)));
 
+    // Create shared application state
     let state = Arc::new(RwLock::new(AppState { lambdas: HashMap::new(), sandboxs }));
 
     // Compose the routes
@@ -151,6 +159,7 @@ pip3 install pandas
         .with_state(state);
 
     info!("Listening on port 3000");
+    // Bind the application to the specified port and serve it
     let listener = tokio::net::TcpListener::bind(":::3000").await?;
     Ok(axum::serve(listener, app).await?)
 }

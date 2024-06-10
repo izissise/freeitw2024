@@ -47,6 +47,7 @@ fn lock_state_write(state: &AppStateWrapper) -> Result<std::sync::RwLockWriteGua
     state.write().map_err(move |e| anyhow::anyhow! { e.to_string() })
 }
 
+/// Handler to return a paginated list of sandboxes
 pub async fn sandboxs_index(
     pagination: Option<Query<Pagination>>,
     State(s): State<AppStateWrapper>,
@@ -60,6 +61,7 @@ pub async fn sandboxs_index(
     Ok(Json(sandboxs).into_response())
 }
 
+/// Handler to return a paginated list of lambda applications
 pub async fn lambdas_index(
     pagination: Option<Query<Pagination>>,
     State(s): State<AppStateWrapper>,
@@ -73,7 +75,7 @@ pub async fn lambdas_index(
     Ok(Json(lambdas).into_response())
 }
 
-/// Creates a lambda
+/// Structure to receive data for creating a new lambda
 #[derive(Deserialize)]
 pub struct LambdasInsert {
     name: String,
@@ -81,6 +83,7 @@ pub struct LambdasInsert {
     app: LambdaApp,
 }
 
+/// Handler to insert a new lambda application
 pub async fn lambdas_insert(
     State(s): State<AppStateWrapper>,
     lambdasinsert: Json<LambdasInsert>,
@@ -93,6 +96,7 @@ pub async fn lambdas_insert(
     Ok(StatusCode::CREATED.into_response())
 }
 
+/// Handler to retrieve a lambda application by name
 pub async fn lambda_get(
     Path(name): Path<String>,
     State(s): State<AppStateWrapper>,
@@ -103,6 +107,7 @@ pub async fn lambda_get(
     Ok(Json(lambda).into_response())
 }
 
+/// Handler to delete a lambda application by name
 pub async fn lambda_delete(
     Path(name): Path<String>,
     State(s): State<AppStateWrapper>,
@@ -127,6 +132,7 @@ impl Default for ExecParams {
     }
 }
 
+/// Handler to execute a lambda function
 pub async fn lambda_exec(
     params: Option<Query<ExecParams>>,
     Path(name): Path<String>,

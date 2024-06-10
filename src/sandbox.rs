@@ -89,6 +89,7 @@ impl Trait for BubbleWrap {
     }
 }
 
+// Return default sandboxes
 pub fn default_sandboxs(host_wd: String, bwrap_wd: String) -> (Host, BubbleWrap) {
     let host_sb = Host(host_wd);
     let bwrap_sb = BubbleWrap::new(
